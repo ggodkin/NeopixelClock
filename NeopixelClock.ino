@@ -134,7 +134,11 @@ void loop() {
 void displayTime(int dispHours, int dispMinutes) {
 
   matrix.fillScreen(0);
-  matrix.setCursor(0, 0);
+  if (dispHours < 10) {
+    matrix.setCursor(6, 0);
+  } else {
+    matrix.setCursor(0, 0);
+  }
   matrix.setTextColor(colors[2]);
   String localMinutes;
   if (dispMinutes < 10) {
