@@ -1,6 +1,8 @@
 # NeopixelClock
 ESP8266 controlled clock
+
 NTP syncronized
+
 Neopixel 8x32 matrix display
 
 TODO List:
