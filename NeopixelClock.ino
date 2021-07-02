@@ -20,6 +20,11 @@
 #include <Adafruit_NeoMatrix.h>
 #include <Adafruit_NeoPixel.h>
 
+#include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
+
 #if !defined(ESP32) && !defined(ESP8266)
   #error This sketch works only for the ESP8266 and ESP32
 #endif
@@ -34,6 +39,8 @@
 // it will be extended with MQTT credentials
 
 #include <home_wifi_multi.h>
+const char* ssid = SSID1;
+const char* password = PWD1;
 
 unsigned int prevMinutes = 0;
 boolean cursorOn = true;
@@ -70,12 +77,31 @@ void setup() {
   matrix.show();
   delay(1000);
 
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+    matrix.fillScreen(0);
+    matrix.setCursor(0, 0);
+    matrix.setTextColor(colors[2]);
+    matrix.print("noWIFI");
+    matrix.show();
+    delay(5000);
+    ESP.restart();
+  }
+
   auto chicagoTz = TimeZone::forZoneInfo(
                      &zonedb::kZoneAmerica_Chicago, &chicagoProcessor);
 
   acetime_t nowSeconds;
 
-  ntpClock.setup(SSID, PASSWORD);
+  matrix.fillScreen(0);
+  matrix.setCursor(0, 0);
+  matrix.setTextColor(colors[2]);
+  matrix.print("WIFI ok");
+  matrix.show();
+
+  //ntpClock.setup(SSID, PASSWORD);
+  ntpClock.setup();
 
   if (!ntpClock.isSetup()) {
     return;
@@ -87,14 +113,16 @@ void setup() {
   } else {
     return;
   }
+  
+  ArduinoOTA.begin();
 
 }
 
- 
-
- 
-
 void loop() {
+
+  if (millis() < 300000) {
+      ArduinoOTA.handle();
+  }
 
   unsigned int currentMinutes = 0;
 
