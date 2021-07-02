@@ -6,12 +6,10 @@
 //      add leading 0 to minutes
 //      only take positive NTP values
 //      Reduce : spacing and blink it
-// TODO retry on failed NTP - how many? or count failures after so many - revalidate WiFi -
+//      OTA
 // TODO indicate failed NTP and Failed WiFi requests
 // TODO MQTT enable
-// TODO OTA
 // TODO Web control? Time Zone, WiFi credentials, Node Red...
-// TODO When to re-try NTP - how often
 // TODO RTC?
 // TODO Garage status indicator
 // TODO adjust light intecity based on ambient light
@@ -96,9 +94,10 @@ void setup() {
 
   matrix.fillScreen(0);
   matrix.setCursor(0, 0);
-  matrix.setTextColor(colors[2]);
-  matrix.print("WIFI ok");
+  matrix.setTextColor(matrix.Color(127,127,0));
+  matrix.print("WiFiOk");
   matrix.show();
+  delay(1000);
 
   //ntpClock.setup(SSID, PASSWORD);
   ntpClock.setup();
