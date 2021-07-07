@@ -13,3 +13,5 @@ TODO List:
  - RTC?
  - Garage status indicator
  - adjust light intecity based on ambient light
+ - adjust clock color based on outside temperature
+ - add outside humidity indicator
