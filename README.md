@@ -7,7 +7,8 @@ Neopixel 8x32 matrix display
 
 TODO List:
  - MQTT enable
- - Web control? Time Zone, WiFi credentials, Node Red...
+ - Web control? Time Zone, WiFi credentials, Node Red...\
+ - Alternative WiFi
  - When to retry NTP ; how often
  - RTC?
  - Garage status indicator
