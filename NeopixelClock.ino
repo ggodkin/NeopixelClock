@@ -152,6 +152,9 @@ void loop() {
   
   matrix.print(":");
   matrix.show();
+  
+  displayGarageClosed(cursorOn);
+
   prevMinutes = currentMinutes;
 
 }
@@ -178,6 +181,20 @@ void displayTime(int dispHours, int dispMinutes) {
   matrix.print(localMinutes);
   matrix.show();
 
+}
+
+void displayGarageClosed(boolean closedInd) {
+  int bmx = 28;
+  int bmy = 0;
+  int dimx = 3;
+  int dimy = 3;
+  if (closedInd) {
+    matrix.fillRect(bmx, bmy, dimx, dimy, colors[1]);
+   } else {
+    matrix.drawRect(bmx, bmy, dimx, dimy, colors[0]);
+    matrix.fillRect(bmx+1, bmy+1, 1, 1, 0);
+  }
+  matrix.show();
 }
 
  
