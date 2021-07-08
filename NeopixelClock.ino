@@ -193,6 +193,7 @@ void displayGarageClosed(boolean closedInd) {
    } else {
     matrix.drawRect(bmx, bmy, dimx, dimy, colors[0]);
     matrix.fillRect(bmx+1, bmy+1, 1, 1, 0);
+    matrix.fillRect(bmx+1, bmy+2, 1, 1, 0);
   }
   matrix.show();
 }
