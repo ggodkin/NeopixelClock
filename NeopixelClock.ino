@@ -44,6 +44,7 @@ const char* password = PWD1;
 
 unsigned int prevMinutes = 0;
 boolean cursorOn = true;
+volatile boolean garageDoorClosedStatus = false;
 
 using namespace ace_time;
 using namespace ace_time::clock;
@@ -61,6 +62,12 @@ const char* mqttPassword = mqttPassword1;
 static BasicZoneProcessor chicagoProcessor;
 static NtpClock ntpClock;
 static SystemClockLoop systemClock(&ntpClock, nullptr /*backup*/);
+
+#define MSG_BUFFER_SIZE  (50)
+char msg[MSG_BUFFER_SIZE];
+char msgOut[MSG_BUFFER_SIZE];
+int value = 0;
+String msgStr;
 
 #define PIN 3
 
@@ -85,13 +92,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println();
 
-  // Switch on the LED if an 1 was received as first character
   if ((char)payload[0] == '1') {
-    //digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
-    // but actually the LED is on; this is because
-    // it is active low on the ESP-01)
+    garageDoorClosedStatus = true;
   } else {
-    //digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off by making the voltage HIGH
+    garageDoorClosedStatus = false;
   }
 
 }
@@ -109,7 +113,7 @@ void reconnect() {
       // Once connected, publish an announcement...
       client.publish("outTopic", "hello world");
       // ... and resubscribe
-      client.subscribe("inTopic");
+      client.subscribe("cmnd/NeopixelClock/GarageDoorClosed");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -200,27 +204,32 @@ void loop() {
   currentMinutes = chicagoTime.minute();
   if (currentMinutes != prevMinutes) {
     displayTime(chicagoTime.hour(), currentMinutes );
+    msgStr = (String(chicagoTime.hour()) + " : " + String(chicagoTime.minute()));
+    //Serial.println(msgStr);
+    msgStr.toCharArray(msgOut,MSG_BUFFER_SIZE);
+    snprintf (msg, MSG_BUFFER_SIZE, msgOut, value);
+    client.publish("outTopic", msg);
+    Serial.println(msg);
   }
 
   if (nowSeconds != prevSeconds) {
     cursorOn = not cursorOn;
     prevSeconds = nowSeconds;
-  }
 
-  matrix.setCursor(11, 0);
+    matrix.setCursor(11, 0);
+    
+    if (cursorOn){
+      matrix.setTextColor(colors[2]);
+    } else {
+      matrix.setTextColor(colors[3]);
+    }
   
-  if (cursorOn){
-    matrix.setTextColor(colors[2]);
-  } else {
-    matrix.setTextColor(colors[3]);
-  }
-  
-  matrix.print(":");
-  matrix.show();
-  
-  displayGarageClosed(cursorOn);
-
-  prevMinutes = currentMinutes;
+    matrix.print(":");
+    matrix.show();
+    displayGarageClosed(garageDoorClosedStatus);
+   }
+ 
+   prevMinutes = currentMinutes;
 
 }
 
@@ -245,7 +254,7 @@ void displayTime(int dispHours, int dispMinutes) {
   matrix.setCursor(16, 0);
   matrix.print(localMinutes);
   matrix.show();
-
+  displayGarageClosed(garageDoorClosedStatus);
 }
 
 void displayGarageClosed(boolean closedInd) {
