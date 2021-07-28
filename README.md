@@ -9,6 +9,8 @@ MQTT controlled additional indicators
 
 Brightness controlled by intencity of ambient light
 
+Schematics https://oshwlab.com/ggodkin/ws2812b-watch
+
 TODO List:
  - Web control? Time Zone, WiFi credentials, Node Red...\
  - Alternative WiFi
