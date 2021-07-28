@@ -7,6 +7,8 @@ Neopixel 8x32 matrix display
 
 MQTT controlled additional indicators
 
+Brightness controlled by intencity of ambient light
+
 TODO List:
  - Web control? Time Zone, WiFi credentials, Node Red...\
  - Alternative WiFi
@@ -14,6 +16,5 @@ TODO List:
  - Separate WiFi setup
  - When to retry NTP ; how often
  - RTC?
- - adjust light intecity based on ambient light
  - adjust clock color based on outside temperature
  - add outside humidity indicator
