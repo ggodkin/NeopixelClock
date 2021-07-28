@@ -46,6 +46,8 @@ unsigned int prevMinutes = 0;
 boolean cursorOn = true;
 volatile boolean garageDoorClosedStatus = false;
 
+unsigned int brightness = 1;
+
 using namespace ace_time;
 using namespace ace_time::clock;
 
@@ -130,7 +132,7 @@ void setup() {
   
   matrix.begin();
   matrix.setTextWrap(false);
-  matrix.setBrightness(40);
+  matrix.setBrightness(brightness);
   matrix.setTextColor(colors[1]);
   matrix.print("Setup");
   matrix.show();
@@ -216,6 +218,12 @@ void loop() {
     cursorOn = not cursorOn;
     prevSeconds = nowSeconds;
 
+    brightness = analogRead(A0)/4 + 1;
+    matrix.setBrightness(brightness);
+    msgStr = (String(brightness));
+    msgStr.toCharArray(msgOut,MSG_BUFFER_SIZE);
+    snprintf (msg, MSG_BUFFER_SIZE, msgOut, value);
+    client.publish("outTopic", msg);
     matrix.setCursor(11, 0);
     
     if (cursorOn){
