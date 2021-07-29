@@ -210,7 +210,7 @@ void loop() {
     //Serial.println(msgStr);
     msgStr.toCharArray(msgOut,MSG_BUFFER_SIZE);
     snprintf (msg, MSG_BUFFER_SIZE, msgOut, value);
-    client.publish("outTopic", msg);
+    client.publish("WatchBroom/Time", msg);
     Serial.println(msg);
   }
 
@@ -218,12 +218,15 @@ void loop() {
     cursorOn = not cursorOn;
     prevSeconds = nowSeconds;
 
-    brightness = analogRead(A0)/4 + 1;
+    brightness = analogRead(A0)/5;
+    if (brightness == 0) {
+      brightness = 1;
+    }
     matrix.setBrightness(brightness);
     msgStr = (String(brightness));
     msgStr.toCharArray(msgOut,MSG_BUFFER_SIZE);
     snprintf (msg, MSG_BUFFER_SIZE, msgOut, value);
-    client.publish("outTopic", msg);
+    client.publish("WatchBroom/Brightness", msg);
     matrix.setCursor(11, 0);
     
     if (cursorOn){
