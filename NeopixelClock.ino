@@ -32,6 +32,16 @@
 #include <AceRoutine.h>
 #include <AceTime.h>
 
+#define DEBUG 0
+
+#if DEBUG == 1
+  #define debug(x) Serial.print(x)
+  #define debugln(x) Serial.println(x)
+#else
+  #define debug(x)
+  #define debugln(x)
+#endif 
+
 // File in your library path to hold setings not to be shared with public
 // in the following format
 // #define SSID1 "Enter your SSID"
@@ -56,7 +66,7 @@ acetime_t prevSeconds = 0;
 static const char SSID[] = SSID1;
 static const char PASSWORD[] = PWD1;
 
-const char* mqtt_server = mqttServer1;
+//const char* mqtt_server = mqttServer1;
 const int mqttPort = mqttPort1;
 const char* mqttUser = mqttUser1;
 const char* mqttPassword = mqttPassword1;
@@ -82,17 +92,19 @@ const uint16_t colors[] = {
   matrix.Color(255, 0, 0), matrix.Color(0, 255, 0), matrix.Color(0, 0, 255)
 };
 
+IPAddress server(mqttServer1);
+
 WiFiClient espClient;
-PubSubClient client(espClient);
+PubSubClient client(server, mqttPort1, espClient);
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
+  debug("Message arrived [");
+  debug(topic);
+  debug("] ");
   for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
+    debug((char)payload[i]);
   }
-  Serial.println();
+  debugln();
 
   if ((char)payload[0] == '1') {
     garageDoorClosedStatus = true;
@@ -105,21 +117,21 @@ void callback(char* topic, byte* payload, unsigned int length) {
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    debug("Attempting MQTT connection...");
     // Create a random client ID
     String clientId = "ESP8266Client-";
     clientId += String(random(0xffff), HEX);
     // Attempt to connect
     if (client.connect(clientId.c_str(), mqttUser1, mqttPassword1)) {
-      Serial.println("connected");
+      debugln("connected");
       // Once connected, publish an announcement...
       client.publish("outTopic", "hello world");
       // ... and resubscribe
       client.subscribe("cmnd/NeopixelClock/GarageDoorClosed");
     } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
+      debug("failed, rc=");
+      debug(client.state());
+      debugln(" try again in 5 seconds");
       // Wait 5 seconds before retrying
       delay(5000);
     }
@@ -135,6 +147,7 @@ void setup() {
   matrix.setBrightness(brightness);
   matrix.setTextColor(colors[1]);
   matrix.print("Setup");
+  debug("Setup");
   matrix.show();
   delay(1000);
 
@@ -145,8 +158,9 @@ void setup() {
     matrix.setCursor(0, 0);
     matrix.setTextColor(colors[2]);
     matrix.print("noWIFI");
+    debug("No WiFi");
     matrix.show();
-    delay(5000);
+    delay(1000);
     ESP.restart();
   }
 
@@ -157,8 +171,9 @@ void setup() {
 
   matrix.fillScreen(0);
   matrix.setCursor(0, 0);
-  matrix.setTextColor(matrix.Color(127,127,0));
+  matrix.setTextColor(colors[1]);
   matrix.print("WiFiOk");
+  debug("WiFi ok");
   matrix.show();
   delay(1000);
 
@@ -178,7 +193,7 @@ void setup() {
   
   ArduinoOTA.begin();
   
-  client.setServer(mqtt_server, 1883);
+//  client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
 
 }
@@ -211,7 +226,7 @@ void loop() {
     msgStr.toCharArray(msgOut,MSG_BUFFER_SIZE);
     snprintf (msg, MSG_BUFFER_SIZE, msgOut, value);
     client.publish("WatchBroom/Time", msg);
-    Serial.println(msg);
+    debugln(msg);
   }
 
   if (nowSeconds != prevSeconds) {
