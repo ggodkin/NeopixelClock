@@ -7,19 +7,18 @@
 //      only take positive NTP values
 //      Reduce : spacing and blink it
 //      OTA
+//      Garage status indicator
+//      MQTT enable
+//      FastLED
+//      Updated version of AceTime
 // TODO indicate failed NTP and Failed WiFi requests
-// TODO MQTT enable
 // TODO Web control? Time Zone, WiFi credentials, Node Red...
 // TODO RTC?
-// TODO Garage status indicator
 // TODO adjust light intecity based on ambient light
 
 #include <Adafruit_GFX.h>
-#include <Adafruit_NeoMatrix.h>
-#include <Adafruit_NeoPixel.h>
 #include <FastLED.h>
 #include <FastLED_NeoMatrix.h>
-
 
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
@@ -90,17 +89,11 @@ String msgStr;
 #define mh 8
 #define NUMMATRIX (mw*mh)
 
-//Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(32, 8, PIN,
-//                            NEO_MATRIX_TOP     + NEO_MATRIX_LEFT +
-//                            NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG,
-//                            NEO_GRB            + NEO_KHZ800);
-
 CRGB matrixleds[NUMMATRIX];
 
 FastLED_NeoMatrix *matrix = new FastLED_NeoMatrix(matrixleds, mw, mh, 
   NEO_MATRIX_TOP     + NEO_MATRIX_LEFT +
     NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG);
-
  
 const uint16_t colors[] = {
   matrix->Color(255, 0, 0), matrix->Color(0, 255, 0), matrix->Color(0, 0, 255)
