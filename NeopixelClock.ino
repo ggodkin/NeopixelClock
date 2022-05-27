@@ -17,6 +17,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_NeoMatrix.h>
 #include <Adafruit_NeoPixel.h>
+#include <FastLED.h>
+#include <FastLED_NeoMatrix.h>
+
 
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
@@ -31,8 +34,9 @@
 
 #include <AceRoutine.h>
 #include <AceTime.h>
+#include <AceTimeClock.h>
 
-#define DEBUG 0
+#define DEBUG 1
 
 #if DEBUG == 1
   #define debug(x) Serial.print(x)
@@ -81,15 +85,25 @@ char msgOut[MSG_BUFFER_SIZE];
 int value = 0;
 String msgStr;
 
-#define PIN 3
+#define PIN D3
+#define mw 32
+#define mh 8
+#define NUMMATRIX (mw*mh)
 
-Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(32, 8, PIN,
-                            NEO_MATRIX_TOP     + NEO_MATRIX_LEFT +
-                            NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG,
-                            NEO_GRB            + NEO_KHZ800);
+//Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(32, 8, PIN,
+//                            NEO_MATRIX_TOP     + NEO_MATRIX_LEFT +
+//                            NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG,
+//                            NEO_GRB            + NEO_KHZ800);
+
+CRGB matrixleds[NUMMATRIX];
+
+FastLED_NeoMatrix *matrix = new FastLED_NeoMatrix(matrixleds, mw, mh, 
+  NEO_MATRIX_TOP     + NEO_MATRIX_LEFT +
+    NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG);
+
  
 const uint16_t colors[] = {
-  matrix.Color(255, 0, 0), matrix.Color(0, 255, 0), matrix.Color(0, 0, 255)
+  matrix->Color(255, 0, 0), matrix->Color(0, 255, 0), matrix->Color(0, 0, 255)
 };
 
 IPAddress server(mqttServer1);
@@ -142,24 +156,25 @@ void setup() {
 
   Serial.begin(115200);
   
-  matrix.begin();
-  matrix.setTextWrap(false);
-  matrix.setBrightness(brightness);
-  matrix.setTextColor(colors[1]);
-  matrix.print("Setup");
+  FastLED.addLeds<NEOPIXEL,PIN>(matrixleds, NUMMATRIX); 
+  matrix->begin();
+  matrix->setTextWrap(false);
+  matrix->setBrightness(brightness);
+  matrix->setTextColor(colors[1]);
+  matrix->print("Setup");
   debug("Setup");
-  matrix.show();
+  matrix->show();
   delay(1000);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    matrix.fillScreen(0);
-    matrix.setCursor(0, 0);
-    matrix.setTextColor(colors[2]);
-    matrix.print("noWIFI");
+    matrix->fillScreen(0);
+    matrix->setCursor(0, 0);
+    matrix->setTextColor(colors[2]);
+    matrix->print("noWIFI");
     debug("No WiFi");
-    matrix.show();
+    matrix->show();
     delay(1000);
     ESP.restart();
   }
@@ -169,12 +184,12 @@ void setup() {
 
   acetime_t nowSeconds;
 
-  matrix.fillScreen(0);
-  matrix.setCursor(0, 0);
-  matrix.setTextColor(colors[1]);
-  matrix.print("WiFiOk");
+  matrix->fillScreen(0);
+  matrix->setCursor(0, 0);
+  matrix->setTextColor(colors[1]);
+  matrix->print("WiFiOk");
   debug("WiFi ok");
-  matrix.show();
+  matrix->show();
   delay(1000);
 
   //ntpClock.setup(SSID, PASSWORD);
@@ -237,21 +252,21 @@ void loop() {
     if (brightness == 0) {
       brightness = 1;
     }
-    matrix.setBrightness(brightness);
+    matrix->setBrightness(brightness);
     msgStr = (String(brightness));
     msgStr.toCharArray(msgOut,MSG_BUFFER_SIZE);
     snprintf (msg, MSG_BUFFER_SIZE, msgOut, value);
     client.publish("WatchBroom/Brightness", msg);
-    matrix.setCursor(11, 0);
+    matrix->setCursor(11, 0);
     
     if (cursorOn){
-      matrix.setTextColor(colors[2]);
+      matrix->setTextColor(colors[2]);
     } else {
-      matrix.setTextColor(colors[3]);
+      matrix->setTextColor(colors[3]);
     }
   
-    matrix.print(":");
-    matrix.show();
+    matrix->print(":");
+    matrix->show();
     displayGarageClosed(garageDoorClosedStatus);
    }
  
@@ -263,23 +278,23 @@ void loop() {
 
 void displayTime(int dispHours, int dispMinutes) {
 
-  matrix.fillScreen(0);
+  matrix->fillScreen(0);
   if (dispHours < 10) {
-    matrix.setCursor(6, 0);
+    matrix->setCursor(6, 0);
   } else {
-    matrix.setCursor(0, 0);
+    matrix->setCursor(0, 0);
   }
-  matrix.setTextColor(colors[2]);
+  matrix->setTextColor(colors[2]);
   String localMinutes;
   if (dispMinutes < 10) {
     localMinutes = "0" + String(dispMinutes);
   }else {
     localMinutes = String(dispMinutes);
   }
-  matrix.print(String(dispHours));
-  matrix.setCursor(16, 0);
-  matrix.print(localMinutes);
-  matrix.show();
+  matrix->print(String(dispHours));
+  matrix->setCursor(16, 0);
+  matrix->print(localMinutes);
+  matrix->show();
   displayGarageClosed(garageDoorClosedStatus);
 }
 
@@ -289,13 +304,13 @@ void displayGarageClosed(boolean closedInd) {
   int dimx = 3;
   int dimy = 3;
   if (closedInd) {
-    matrix.fillRect(bmx, bmy, dimx, dimy, colors[1]);
+    matrix->fillRect(bmx, bmy, dimx, dimy, colors[1]);
    } else {
-    matrix.drawRect(bmx, bmy, dimx, dimy, colors[0]);
-    matrix.fillRect(bmx+1, bmy+1, 1, 1, 0);
-    matrix.fillRect(bmx+1, bmy+2, 1, 1, 0);
+    matrix->drawRect(bmx, bmy, dimx, dimy, colors[0]);
+    matrix->fillRect(bmx+1, bmy+1, 1, 1, 0);
+    matrix->fillRect(bmx+1, bmy+2, 1, 1, 0);
   }
-  matrix.show();
+  matrix->show();
 }
 
  
