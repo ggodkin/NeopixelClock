@@ -252,43 +252,53 @@ void setup() {
 
     delay(1000);
 
-    // -------------------------------------------------------------------------
-    // WiFi
-    // -------------------------------------------------------------------------
+    debugln("Display setup");
 
-    WiFi.mode(WIFI_STA);
+// -------------------------------------------------------------------------
+// WiFi
+// -------------------------------------------------------------------------
 
-    WiFi.begin(
-        ssid,
-        password
-    );
+debugln("Before WiFi.mode()");
 
-    debug("Connecting to WiFi");
+WiFi.mode(WIFI_STA);
 
-    while (
-        WiFi.waitForConnectResult() != WL_CONNECTED
-    ) {
+debugln("After WiFi.mode()");
+
+WiFi.begin(
+    ssid,
+    password
+);
+
+debugln("After WiFi.begin()");
+
+uint32_t wifiStart = millis();
+
+while (WiFi.status() != WL_CONNECTED) {
+
+    delay(250);
+
+    debug(".");
+
+    if (millis() - wifiStart >= 15000) {
+
+        debugln();
+        debugln("WiFi connection timeout");
 
         matrix->fillScreen(0);
-
         matrix->setCursor(0, 0);
-
         matrix->setTextColor(colors[2]);
-
         matrix->print("noWIFI");
-
-        debugln("No WiFi");
-
         matrix->show();
 
-        delay(1000);
+        delay(2000);
 
         ESP.restart();
     }
+}
 
-    debugln();
-    debug("WiFi connected. IP: ");
-    debugln(WiFi.localIP());
+debugln();
+debug("WiFi connected. IP: ");
+debugln(WiFi.localIP());
 
     // -------------------------------------------------------------------------
     // Time zone
