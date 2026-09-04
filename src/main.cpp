@@ -68,6 +68,12 @@ using namespace ace_time::clock;
 
 static BasicZoneProcessor denverProcessor;
 
+// Previous Unix timestamp.
+//
+// The ESP32 native time_t is the fundamental time source.
+// Use a 64-bit value here so we do not convert it back into AceTime's
+// internal epoch representation just for comparison.
+//
 int64_t prevSeconds = 0;
 
 // -----------------------------------------------------------------------------
@@ -80,6 +86,19 @@ bool cursorOn = true;
 volatile bool garageDoorClosedStatus = false;
 
 uint8_t brightness = 1;
+
+// -----------------------------------------------------------------------------
+// MQTT state
+// -----------------------------------------------------------------------------
+
+// MQTT reconnect attempts are intentionally non-blocking.
+//
+// We will attempt a connection at most once every 5 seconds.
+// The rest of the clock continues to operate while MQTT is unavailable.
+//
+constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 5000;
+
+uint32_t lastMqttReconnectAttempt = 0;
 
 // -----------------------------------------------------------------------------
 // MQTT messages
@@ -178,51 +197,66 @@ void callback(
 
 void reconnect() {
 
-    // Temporary migration behavior.
+    // -------------------------------------------------------------------------
+    // Non-blocking MQTT reconnect
+    // -------------------------------------------------------------------------
     //
-    // This retains the original blocking reconnect behavior.
-    // It will be replaced with non-blocking reconnect logic during
-    // the network/MQTT refactor.
+    // Do NOT wait here for MQTT.
+    //
+    // If the broker is unavailable, the clock, display and OTA must continue
+    // operating normally.
+    //
+    // We simply try again periodically.
+    //
 
-    while (!client.connected()) {
+    uint32_t nowMillis = millis();
 
-        debug("Attempting MQTT connection...");
+    if (
+        nowMillis - lastMqttReconnectAttempt <
+        MQTT_RECONNECT_INTERVAL_MS
+    ) {
+        return;
+    }
 
-        String clientId = "ESP32Client-";
+    lastMqttReconnectAttempt = nowMillis;
 
-        clientId += String(
-            static_cast<uint32_t>(random(0xffff)),
-            HEX
+    debug("Attempting MQTT connection...");
+
+    String clientId = "ESP32Client-";
+
+    clientId += String(
+        static_cast<uint32_t>(random(0xffff)),
+        HEX
+    );
+
+    if (
+        client.connect(
+            clientId.c_str(),
+            MQTT_USERNAME,
+            MQTT_PASSWORD
+        )
+    ) {
+
+        debugln("connected");
+
+        client.publish(
+            "outTopic",
+            "hello world"
         );
 
-        if (
-            client.connect(
-                clientId.c_str(),
-                MQTT_USERNAME,
-                MQTT_PASSWORD
-            )
-        ) {
+        client.subscribe(
+            "cmnd/NeopixelClock/GarageDoorClosed"
+        );
 
-            debugln("connected");
+    } else {
 
-            client.publish(
-                "outTopic",
-                "hello world"
-            );
+        debug("failed, rc=");
+        debugln(client.state());
 
-            client.subscribe(
-                "cmnd/NeopixelClock/GarageDoorClosed"
-            );
-
-        } else {
-
-            debug("failed, rc=");
-            debug(client.state());
-
-            debugln(" try again in 5 seconds");
-
-            delay(5000);
-        }
+        // No delay here.
+        //
+        // The next connection attempt will happen after
+        // MQTT_RECONNECT_INTERVAL_MS.
     }
 }
 
@@ -322,7 +356,9 @@ void setup() {
             &zonedb::kZoneAmerica_Denver,
             &denverProcessor
         );
-        
+
+    (void) denverTz;
+
     // -------------------------------------------------------------------------
     // WiFi status
     // -------------------------------------------------------------------------
@@ -464,7 +500,8 @@ void setup() {
             denverTime.minute()
         );
 
-        prevMinutes = denverTime.minute();
+        prevMinutes =
+            denverTime.minute();
 
         prevSeconds =
             static_cast<int64_t>(now);
@@ -502,10 +539,10 @@ void loop() {
     // MQTT
     // -------------------------------------------------------------------------
     //
-    // Temporary migration behavior.
+    // Non-blocking reconnect.
     //
-    // This is still blocking when the MQTT broker is unavailable.
-    // We will replace this with non-blocking reconnect behavior later.
+    // If MQTT is unavailable, reconnect() returns immediately and the clock
+    // continues running.
     //
 
     if (!client.connected()) {
@@ -577,6 +614,10 @@ void loop() {
             msgOut
         );
 
+        // Publishing is safe even if MQTT is currently disconnected.
+        //
+        // PubSubClient will simply return false in that case.
+        //
         client.publish(
             "WatchBroom/Time",
             msg
