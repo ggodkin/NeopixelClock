@@ -2,12 +2,8 @@
 //
 // PlatformIO / ESP32 migration.
 //
-// Based on AceTime, FastLED_NeoMatrix and PubSubClient.
-//
 // Current architecture:
-//   - ESP32 native system clock
-//   - Native SNTP for time synchronization
-//   - AceTime for America/Denver timezone/DST conversion
+//   - Timekeeper: native ESP32 clock, SNTP, AceTime timezone conversion
 //   - FastLED_NeoMatrix for the 32x8 display
 //   - PubSubClient for MQTT
 //   - ArduinoOTA for OTA updates
@@ -27,14 +23,9 @@
 
 #include <PubSubClient.h>
 
-#include <AceRoutine.h>
-#include <AceTime.h>
-#include <AceTimeClock.h>
-
-#include <time.h>
-
 #include "config.h"
 #include "secrets.h"
+#include "timekeeper.h"
 
 #define DEBUG 1
 
@@ -60,29 +51,17 @@ PubSubClient client(
 );
 
 // -----------------------------------------------------------------------------
-// Time
+// Timekeeper
 // -----------------------------------------------------------------------------
 
-using namespace ace_time;
-using namespace ace_time::clock;
-
-static BasicZoneProcessor denverProcessor;
-
-// Previous Unix timestamp.
-//
-// The ESP32 native time_t is the fundamental time source.
-// Use a 64-bit value here so we do not convert it back into AceTime's
-// internal epoch representation just for comparison.
-//
-int64_t prevSeconds = 0;
+Timekeeper timekeeper;
 
 // -----------------------------------------------------------------------------
 // Display state
 // -----------------------------------------------------------------------------
 
-unsigned int prevMinutes = 0;
-
 bool cursorOn = true;
+
 volatile bool garageDoorClosedStatus = false;
 
 uint8_t brightness = 1;
@@ -91,11 +70,6 @@ uint8_t brightness = 1;
 // MQTT state
 // -----------------------------------------------------------------------------
 
-// MQTT reconnect attempts are intentionally non-blocking.
-//
-// We will attempt a connection at most once every 5 seconds.
-// The rest of the clock continues to operate while MQTT is unavailable.
-//
 constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 5000;
 
 uint32_t lastMqttReconnectAttempt = 0;
@@ -108,8 +82,6 @@ constexpr size_t MSG_BUFFER_SIZE = 50;
 
 char msg[MSG_BUFFER_SIZE];
 char msgOut[MSG_BUFFER_SIZE];
-
-int value = 0;
 
 String msgStr;
 
@@ -133,9 +105,7 @@ FastLED_NeoMatrix* matrix =
 // RGB colors.
 //
 // The original sketch had only 3 entries but accessed colors[3] when
-// turning the colon off. That was an out-of-bounds access.
-//
-// The fourth entry is intentionally black/off.
+// turning the colon off. The fourth entry is intentionally black/off.
 //
 const uint32_t colors[] = {
     matrix->Color(255, 0, 0),  // 0 = red
@@ -174,6 +144,7 @@ void callback(
     byte* payload,
     unsigned int length
 ) {
+
     debug("Message arrived [");
     debug(topic);
     debug("] ");
@@ -196,18 +167,6 @@ void callback(
 // -----------------------------------------------------------------------------
 
 void reconnect() {
-
-    // -------------------------------------------------------------------------
-    // Non-blocking MQTT reconnect
-    // -------------------------------------------------------------------------
-    //
-    // Do NOT wait here for MQTT.
-    //
-    // If the broker is unavailable, the clock, display and OTA must continue
-    // operating normally.
-    //
-    // We simply try again periodically.
-    //
 
     uint32_t nowMillis = millis();
 
@@ -252,11 +211,6 @@ void reconnect() {
 
         debug("failed, rc=");
         debugln(client.state());
-
-        // No delay here.
-        //
-        // The next connection attempt will happen after
-        // MQTT_RECONNECT_INTERVAL_MS.
     }
 }
 
@@ -348,18 +302,6 @@ void setup() {
     debugln(WiFi.localIP());
 
     // -------------------------------------------------------------------------
-    // Time zone
-    // -------------------------------------------------------------------------
-
-    auto denverTz =
-        TimeZone::forZoneInfo(
-            &zonedb::kZoneAmerica_Denver,
-            &denverProcessor
-        );
-
-    (void) denverTz;
-
-    // -------------------------------------------------------------------------
     // WiFi status
     // -------------------------------------------------------------------------
 
@@ -376,135 +318,21 @@ void setup() {
     delay(1000);
 
     // -------------------------------------------------------------------------
-    // Native ESP32 SNTP
+    // Timekeeper / native SNTP
     // -------------------------------------------------------------------------
-    //
-    // The ESP32 system clock is the fundamental time source.
-    //
-    // SNTP synchronizes/corrects the system clock.
-    // AceTime is then used only for timezone/DST conversion.
-    //
-    // We intentionally do NOT use AceTime's NtpClock here.
-    //
 
-    debugln("Starting native SNTP...");
-
-    configTime(
-        0,
-        0,
-        "pool.ntp.org",
-        "time.nist.gov",
-        "time.google.com"
-    );
-
-    debugln("Waiting for NTP time...");
-
-    struct tm timeinfo;
-
-    uint32_t ntpStart = millis();
-
-    bool ntpValid = false;
-
-    while (
-        !ntpValid &&
-        millis() - ntpStart < 15000
-    ) {
-
-        ntpValid = getLocalTime(
-            &timeinfo,
-            1000
-        );
-
-        if (!ntpValid) {
-            debug(".");
-        }
-    }
-
-    debugln();
-
-    if (!ntpValid) {
-
-        debugln("NTP synchronization timeout");
-
-        // Do not reset the ESP32.
-        //
-        // The main loop can continue running, and a later NTP
-        // synchronization can be added during the network refactor.
-
-    } else {
-
-        char timeBuffer[64];
-
-        strftime(
-            timeBuffer,
-            sizeof(timeBuffer),
-            "%Y-%m-%d %H:%M:%S",
-            &timeinfo
-        );
-
-        debugln("NTP synchronized!");
-
-        debug("System time: ");
-        debugln(timeBuffer);
-    }
+    timekeeper.begin();
 
     // -------------------------------------------------------------------------
     // Initial time display
     // -------------------------------------------------------------------------
 
-    if (ntpValid) {
-
-        time_t now;
-
-        time(&now);
-
-        auto denverTz =
-            TimeZone::forZoneInfo(
-                &zonedb::kZoneAmerica_Denver,
-                &denverProcessor
-            );
-
-        auto denverTime =
-            ZonedDateTime::forUnixSeconds64(
-                static_cast<int64_t>(now),
-                denverTz
-            );
-
-        debug("Denver time: ");
-
-        debug(denverTime.year());
-        debug("-");
-        debug(denverTime.month());
-        debug("-");
-        debug(denverTime.day());
-        debug(" ");
-
-        debug(denverTime.hour());
-        debug(":");
-
-        if (denverTime.minute() < 10) {
-            debug("0");
-        }
-
-        debug(denverTime.minute());
-        debug(":");
-
-        if (denverTime.second() < 10) {
-            debug("0");
-        }
-
-        debugln(denverTime.second());
+    if (timekeeper.isValid()) {
 
         displayTime(
-            denverTime.hour(),
-            denverTime.minute()
+            timekeeper.hour(),
+            timekeeper.minute()
         );
-
-        prevMinutes =
-            denverTime.minute();
-
-        prevSeconds =
-            static_cast<int64_t>(now);
     }
 
     // -------------------------------------------------------------------------
@@ -538,12 +366,6 @@ void loop() {
     // -------------------------------------------------------------------------
     // MQTT
     // -------------------------------------------------------------------------
-    //
-    // Non-blocking reconnect.
-    //
-    // If MQTT is unavailable, reconnect() returns immediately and the clock
-    // continues running.
-    //
 
     if (!client.connected()) {
         reconnect();
@@ -560,47 +382,28 @@ void loop() {
     // -------------------------------------------------------------------------
     // Clock
     // -------------------------------------------------------------------------
-    //
-    // The ESP32 system clock is continuously maintained by the ESP32.
-    // SNTP provides synchronization/correction.
-    //
-    // No AceTime SystemClockLoop is required.
-    //
 
-    time_t now;
+    timekeeper.update();
 
-    time(&now);
-
-    auto denverTz =
-        TimeZone::forZoneInfo(
-            &zonedb::kZoneAmerica_Denver,
-            &denverProcessor
-        );
-
-    auto denverTime =
-        ZonedDateTime::forUnixSeconds64(
-            static_cast<int64_t>(now),
-            denverTz
-        );
-
-    unsigned int currentMinutes =
-        denverTime.minute();
+    if (!timekeeper.isValid()) {
+        return;
+    }
 
     // -------------------------------------------------------------------------
     // Minute changed
     // -------------------------------------------------------------------------
 
-    if (currentMinutes != prevMinutes) {
+    if (timekeeper.minuteChanged()) {
 
         displayTime(
-            denverTime.hour(),
-            currentMinutes
+            timekeeper.hour(),
+            timekeeper.minute()
         );
 
         msgStr =
-            String(denverTime.hour()) +
+            String(timekeeper.hour()) +
             " : " +
-            String(denverTime.minute());
+            String(timekeeper.minute());
 
         msgStr.toCharArray(
             msgOut,
@@ -614,32 +417,21 @@ void loop() {
             msgOut
         );
 
-        // Publishing is safe even if MQTT is currently disconnected.
-        //
-        // PubSubClient will simply return false in that case.
-        //
         client.publish(
             "WatchBroom/Time",
             msg
         );
 
         debugln(msg);
-
-        prevMinutes = currentMinutes;
     }
 
     // -------------------------------------------------------------------------
     // Once-per-second processing
     // -------------------------------------------------------------------------
 
-    int64_t nowSeconds =
-        static_cast<int64_t>(now);
-
-    if (nowSeconds != prevSeconds) {
+    if (timekeeper.secondChanged()) {
 
         cursorOn = !cursorOn;
-
-        prevSeconds = nowSeconds;
 
         // Ambient-light handling is intentionally NOT migrated yet.
         //
