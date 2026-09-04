@@ -68,7 +68,7 @@ using namespace ace_time::clock;
 
 static BasicZoneProcessor denverProcessor;
 
-acetime_t prevSeconds = 0;
+int64_t prevSeconds = 0;
 
 // -----------------------------------------------------------------------------
 // Display state
@@ -322,9 +322,7 @@ void setup() {
             &zonedb::kZoneAmerica_Denver,
             &denverProcessor
         );
-
-    (void) denverTz;
-
+        
     // -------------------------------------------------------------------------
     // WiFi status
     // -------------------------------------------------------------------------
@@ -431,8 +429,8 @@ void setup() {
             );
 
         auto denverTime =
-            ZonedDateTime::forEpochSeconds(
-                static_cast<acetime_t>(now),
+            ZonedDateTime::forUnixSeconds64(
+                static_cast<int64_t>(now),
                 denverTz
             );
 
@@ -467,7 +465,9 @@ void setup() {
         );
 
         prevMinutes = denverTime.minute();
-        prevSeconds = static_cast<acetime_t>(now);
+
+        prevSeconds =
+            static_cast<int64_t>(now);
     }
 
     // -------------------------------------------------------------------------
@@ -541,8 +541,8 @@ void loop() {
         );
 
     auto denverTime =
-        ZonedDateTime::forEpochSeconds(
-            static_cast<acetime_t>(now),
+        ZonedDateTime::forUnixSeconds64(
+            static_cast<int64_t>(now),
             denverTz
         );
 
@@ -591,8 +591,8 @@ void loop() {
     // Once-per-second processing
     // -------------------------------------------------------------------------
 
-    acetime_t nowSeconds =
-        static_cast<acetime_t>(now);
+    int64_t nowSeconds =
+        static_cast<int64_t>(now);
 
     if (nowSeconds != prevSeconds) {
 
