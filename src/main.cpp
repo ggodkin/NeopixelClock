@@ -1,11 +1,18 @@
 // NeopixelClock
 //
-// Initial PlatformIO / ESP32 migration.
+// PlatformIO / ESP32 migration.
 //
 // Based on AceTime, FastLED_NeoMatrix and PubSubClient.
 //
-// This version intentionally preserves the basic behavior of the original
-// ESP8266 project. Power-management and modularization will be added later.
+// Current architecture:
+//   - ESP32 native system clock
+//   - Native SNTP for time synchronization
+//   - AceTime for America/Denver timezone/DST conversion
+//   - FastLED_NeoMatrix for the 32x8 display
+//   - PubSubClient for MQTT
+//   - ArduinoOTA for OTA updates
+//
+// Power-management and further modularization will be added later.
 
 #include <Arduino.h>
 
@@ -23,6 +30,8 @@
 #include <AceRoutine.h>
 #include <AceTime.h>
 #include <AceTimeClock.h>
+
+#include <time.h>
 
 #include "config.h"
 #include "secrets.h"
@@ -57,11 +66,9 @@ PubSubClient client(
 using namespace ace_time;
 using namespace ace_time::clock;
 
-acetime_t prevSeconds = 0;
-
 static BasicZoneProcessor denverProcessor;
-static NtpClock ntpClock;
-static SystemClockLoop systemClock(&ntpClock, nullptr);
+
+acetime_t prevSeconds = 0;
 
 // -----------------------------------------------------------------------------
 // Display state
@@ -109,7 +116,7 @@ FastLED_NeoMatrix* matrix =
 // The original sketch had only 3 entries but accessed colors[3] when
 // turning the colon off. That was an out-of-bounds access.
 //
-// We give the fourth entry its intended value: black/off.
+// The fourth entry is intentionally black/off.
 //
 const uint32_t colors[] = {
     matrix->Color(255, 0, 0),  // 0 = red
@@ -122,7 +129,11 @@ const uint32_t colors[] = {
 // Function declarations
 // -----------------------------------------------------------------------------
 
-void callback(char* topic, byte* payload, unsigned int length);
+void callback(
+    char* topic,
+    byte* payload,
+    unsigned int length
+);
 
 void reconnect();
 
@@ -170,14 +181,15 @@ void reconnect() {
     // Temporary migration behavior.
     //
     // This retains the original blocking reconnect behavior.
-    // We will replace this with non-blocking reconnect logic in the
-    // network/MQTT refactor.
+    // It will be replaced with non-blocking reconnect logic during
+    // the network/MQTT refactor.
 
     while (!client.connected()) {
 
         debug("Attempting MQTT connection...");
 
         String clientId = "ESP32Client-";
+
         clientId += String(
             static_cast<uint32_t>(random(0xffff)),
             HEX
@@ -254,51 +266,52 @@ void setup() {
 
     debugln("Display setup");
 
-// -------------------------------------------------------------------------
-// WiFi
-// -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // WiFi
+    // -------------------------------------------------------------------------
 
-debugln("Before WiFi.mode()");
+    debugln("Before WiFi.mode()");
 
-WiFi.mode(WIFI_STA);
+    WiFi.mode(WIFI_STA);
 
-debugln("After WiFi.mode()");
+    debugln("After WiFi.mode()");
 
-WiFi.begin(
-    ssid,
-    password
-);
+    WiFi.begin(
+        ssid,
+        password
+    );
 
-debugln("After WiFi.begin()");
+    debugln("After WiFi.begin()");
 
-uint32_t wifiStart = millis();
+    uint32_t wifiStart = millis();
 
-while (WiFi.status() != WL_CONNECTED) {
+    while (WiFi.status() != WL_CONNECTED) {
 
-    delay(250);
+        delay(250);
 
-    debug(".");
+        debug(".");
 
-    if (millis() - wifiStart >= 15000) {
+        if (millis() - wifiStart >= 15000) {
 
-        debugln();
-        debugln("WiFi connection timeout");
+            debugln();
+            debugln("WiFi connection timeout");
 
-        matrix->fillScreen(0);
-        matrix->setCursor(0, 0);
-        matrix->setTextColor(colors[2]);
-        matrix->print("noWIFI");
-        matrix->show();
+            matrix->fillScreen(0);
+            matrix->setCursor(0, 0);
+            matrix->setTextColor(colors[2]);
+            matrix->print("noWIFI");
+            matrix->show();
 
-        delay(2000);
+            delay(2000);
 
-        ESP.restart();
+            ESP.restart();
+        }
     }
-}
 
-debugln();
-debug("WiFi connected. IP: ");
-debugln(WiFi.localIP());
+    debugln();
+
+    debug("WiFi connected. IP: ");
+    debugln(WiFi.localIP());
 
     // -------------------------------------------------------------------------
     // Time zone
@@ -329,32 +342,132 @@ debugln(WiFi.localIP());
     delay(1000);
 
     // -------------------------------------------------------------------------
-    // NTP
+    // Native ESP32 SNTP
     // -------------------------------------------------------------------------
+    //
+    // The ESP32 system clock is the fundamental time source.
+    //
+    // SNTP synchronizes/corrects the system clock.
+    // AceTime is then used only for timezone/DST conversion.
+    //
+    // We intentionally do NOT use AceTime's NtpClock here.
+    //
 
-    ntpClock.setup();
+    debugln("Starting native SNTP...");
 
-    if (!ntpClock.isSetup()) {
+    configTime(
+        0,
+        0,
+        "pool.ntp.org",
+        "time.nist.gov",
+        "time.google.com"
+    );
 
-        debugln("NTP setup failed");
+    debugln("Waiting for NTP time...");
 
-        return;
+    struct tm timeinfo;
+
+    uint32_t ntpStart = millis();
+
+    bool ntpValid = false;
+
+    while (
+        !ntpValid &&
+        millis() - ntpStart < 15000
+    ) {
+
+        ntpValid = getLocalTime(
+            &timeinfo,
+            1000
+        );
+
+        if (!ntpValid) {
+            debug(".");
+        }
     }
 
-    acetime_t nowSeconds = ntpClock.getNow();
+    debugln();
 
-    if (nowSeconds > 0) {
+    if (!ntpValid) {
 
-        systemClock.setNow(nowSeconds);
+        debugln("NTP synchronization timeout");
 
-        debug("NTP time: ");
-        debugln(nowSeconds);
+        // Do not reset the ESP32.
+        //
+        // The main loop can continue running, and a later NTP
+        // synchronization can be added during the network refactor.
 
     } else {
 
-        debugln("NTP did not return valid time");
+        char timeBuffer[64];
 
-        return;
+        strftime(
+            timeBuffer,
+            sizeof(timeBuffer),
+            "%Y-%m-%d %H:%M:%S",
+            &timeinfo
+        );
+
+        debugln("NTP synchronized!");
+
+        debug("System time: ");
+        debugln(timeBuffer);
+    }
+
+    // -------------------------------------------------------------------------
+    // Initial time display
+    // -------------------------------------------------------------------------
+
+    if (ntpValid) {
+
+        time_t now;
+
+        time(&now);
+
+        auto denverTz =
+            TimeZone::forZoneInfo(
+                &zonedb::kZoneAmerica_Denver,
+                &denverProcessor
+            );
+
+        auto denverTime =
+            ZonedDateTime::forEpochSeconds(
+                static_cast<acetime_t>(now),
+                denverTz
+            );
+
+        debug("Denver time: ");
+
+        debug(denverTime.year());
+        debug("-");
+        debug(denverTime.month());
+        debug("-");
+        debug(denverTime.day());
+        debug(" ");
+
+        debug(denverTime.hour());
+        debug(":");
+
+        if (denverTime.minute() < 10) {
+            debug("0");
+        }
+
+        debug(denverTime.minute());
+        debug(":");
+
+        if (denverTime.second() < 10) {
+            debug("0");
+        }
+
+        debugln(denverTime.second());
+
+        displayTime(
+            denverTime.hour(),
+            denverTime.minute()
+        );
+
+        prevMinutes = denverTime.minute();
+        prevSeconds = static_cast<acetime_t>(now);
     }
 
     // -------------------------------------------------------------------------
@@ -388,6 +501,12 @@ void loop() {
     // -------------------------------------------------------------------------
     // MQTT
     // -------------------------------------------------------------------------
+    //
+    // Temporary migration behavior.
+    //
+    // This is still blocking when the MQTT broker is unavailable.
+    // We will replace this with non-blocking reconnect behavior later.
+    //
 
     if (!client.connected()) {
         reconnect();
@@ -398,20 +517,22 @@ void loop() {
     // -------------------------------------------------------------------------
     // OTA
     // -------------------------------------------------------------------------
-    //
-    // Unlike the original sketch, OTA is serviced continuously.
-    // This is intentional and will remain the desired behavior.
-    //
 
     ArduinoOTA.handle();
 
     // -------------------------------------------------------------------------
     // Clock
     // -------------------------------------------------------------------------
+    //
+    // The ESP32 system clock is continuously maintained by the ESP32.
+    // SNTP provides synchronization/correction.
+    //
+    // No AceTime SystemClockLoop is required.
+    //
 
-    unsigned int currentMinutes = 0;
+    time_t now;
 
-    systemClock.loop();
+    time(&now);
 
     auto denverTz =
         TimeZone::forZoneInfo(
@@ -419,15 +540,14 @@ void loop() {
             &denverProcessor
         );
 
-    acetime_t nowSeconds = systemClock.getNow();
-
     auto denverTime =
         ZonedDateTime::forEpochSeconds(
-            nowSeconds,
+            static_cast<acetime_t>(now),
             denverTz
         );
 
-    currentMinutes = denverTime.minute();
+    unsigned int currentMinutes =
+        denverTime.minute();
 
     // -------------------------------------------------------------------------
     // Minute changed
@@ -463,11 +583,16 @@ void loop() {
         );
 
         debugln(msg);
+
+        prevMinutes = currentMinutes;
     }
 
     // -------------------------------------------------------------------------
     // Once-per-second processing
     // -------------------------------------------------------------------------
+
+    acetime_t nowSeconds =
+        static_cast<acetime_t>(now);
 
     if (nowSeconds != prevSeconds) {
 
@@ -497,8 +622,6 @@ void loop() {
             garageDoorClosedStatus
         );
     }
-
-    prevMinutes = currentMinutes;
 }
 
 // -----------------------------------------------------------------------------
