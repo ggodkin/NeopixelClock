@@ -26,6 +26,7 @@
 #include "config.h"
 #include "secrets.h"
 #include "timekeeper.h"
+#include "display.h"
 
 #define DEBUG 1
 
@@ -60,11 +61,11 @@ Timekeeper timekeeper;
 // Display state
 // -----------------------------------------------------------------------------
 
+Display display;
+
 bool cursorOn = true;
 
 volatile bool garageDoorClosedStatus = false;
-
-uint8_t brightness = 1;
 
 // -----------------------------------------------------------------------------
 // MQTT state
@@ -231,28 +232,13 @@ void setup() {
     // Display
     // -------------------------------------------------------------------------
 
-    FastLED.addLeds<NEOPIXEL, LED_DATA_PIN>(
-        matrixleds,
-        NUM_LEDS
-    );
+// -------------------------------------------------------------------------
+// Display
+// -------------------------------------------------------------------------
 
-    matrix->begin();
+display.begin();
 
-    matrix->setTextWrap(false);
-
-    matrix->setBrightness(brightness);
-
-    matrix->setTextColor(colors[1]);
-
-    matrix->print("Setup");
-
-    debugln("Display setup");
-
-    matrix->show();
-
-    delay(1000);
-
-    debugln("Display setup");
+debugln("Display setup");
 
     // -------------------------------------------------------------------------
     // WiFi
@@ -329,9 +315,13 @@ void setup() {
 
     if (timekeeper.isValid()) {
 
-        displayTime(
+        display.showTime(
             timekeeper.hour(),
             timekeeper.minute()
+        );
+
+        display.showGarageClosed(
+            garageDoorClosedStatus
         );
     }
 
@@ -395,9 +385,13 @@ void loop() {
 
     if (timekeeper.minuteChanged()) {
 
-        displayTime(
+        display.showTime(
             timekeeper.hour(),
             timekeeper.minute()
+        );
+
+        display.showGarageClosed(
+            garageDoorClosedStatus
         );
 
         msgStr =
@@ -439,121 +433,10 @@ void loop() {
         // We'll decide on the ambient-light sensor input as part of the
         // hardware design rather than silently assigning a GPIO.
 
-        matrix->setCursor(11, 0);
+        display.updateColon(cursorOn);
 
-        if (cursorOn) {
-            matrix->setTextColor(colors[2]);
-        } else {
-            matrix->setTextColor(colors[3]);
-        }
-
-        matrix->print(":");
-
-        matrix->show();
-
-        displayGarageClosed(
+        display.showGarageClosed(
             garageDoorClosedStatus
         );
     }
-}
-
-// -----------------------------------------------------------------------------
-// Display time
-// -----------------------------------------------------------------------------
-
-void displayTime(
-    int dispHours,
-    int dispMinutes
-) {
-
-    matrix->fillScreen(0);
-
-    if (dispHours < 10) {
-        matrix->setCursor(6, 0);
-    } else {
-        matrix->setCursor(0, 0);
-    }
-
-    matrix->setTextColor(colors[2]);
-
-    String localMinutes;
-
-    if (dispMinutes < 10) {
-        localMinutes =
-            "0" +
-            String(dispMinutes);
-    } else {
-        localMinutes =
-            String(dispMinutes);
-    }
-
-    matrix->print(
-        String(dispHours)
-    );
-
-    matrix->setCursor(16, 0);
-
-    matrix->print(
-        localMinutes
-    );
-
-    matrix->show();
-
-    displayGarageClosed(
-        garageDoorClosedStatus
-    );
-}
-
-// -----------------------------------------------------------------------------
-// Garage indicator
-// -----------------------------------------------------------------------------
-
-void displayGarageClosed(
-    bool closedInd
-) {
-
-    constexpr int bmx = 28;
-    constexpr int bmy = 0;
-
-    constexpr int dimx = 3;
-    constexpr int dimy = 3;
-
-    if (closedInd) {
-
-        matrix->fillRect(
-            bmx,
-            bmy,
-            dimx,
-            dimy,
-            colors[1]
-        );
-
-    } else {
-
-        matrix->drawRect(
-            bmx,
-            bmy,
-            dimx,
-            dimy,
-            colors[0]
-        );
-
-        matrix->fillRect(
-            bmx + 1,
-            bmy + 1,
-            1,
-            1,
-            0
-        );
-
-        matrix->fillRect(
-            bmx + 1,
-            bmy + 2,
-            1,
-            1,
-            0
-        );
-    }
-
-    matrix->show();
 }
