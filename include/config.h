@@ -16,6 +16,20 @@ constexpr uint16_t NUM_LEDS =
 
 
 // -----------------------------------------------------------------------------
+// OTA enable input
+// -----------------------------------------------------------------------------
+//
+// Active-low digital input:
+//   HIGH / open   = normal operation
+//   LOW / ground  = OTA mode
+//
+// GPIO32 is a regular ESP32 GPIO and is not used by the current migrated
+// hardware configuration.
+//
+constexpr uint8_t OTA_ENABLE_PIN = 32;
+
+
+// -----------------------------------------------------------------------------
 // Main power detection
 // -----------------------------------------------------------------------------
 //
