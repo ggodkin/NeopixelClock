@@ -4,23 +4,15 @@
 //
 // Current architecture:
 //   - Timekeeper: native ESP32 clock, SNTP, AceTime timezone conversion
-//   - FastLED_NeoMatrix for the 32x8 display
+//   - Display: FastLED_NeoMatrix for the 32x8 display
 //   - PubSubClient for MQTT
 //   - ArduinoOTA for OTA updates
-//
-// Power-management and further modularization will be added later.
+//   - PowerManager for confirmed USB power state
 
 #include <Arduino.h>
 
-#include <Adafruit_GFX.h>
-#include <FastLED.h>
-#include <FastLED_NeoMatrix.h>
-
 #include <WiFi.h>
-#include <ESPmDNS.h>
-#include <WiFiUdp.h>
 #include <ArduinoOTA.h>
-
 #include <PubSubClient.h>
 
 #include "config.h"
@@ -40,6 +32,8 @@
 #endif
 
 PowerManager powerManager;
+Display display;
+Timekeeper timekeeper;
 
 // -----------------------------------------------------------------------------
 // WiFi / MQTT
@@ -55,20 +49,22 @@ PubSubClient client(
 );
 
 // -----------------------------------------------------------------------------
-// Timekeeper
-// -----------------------------------------------------------------------------
-
-Timekeeper timekeeper;
-
-// -----------------------------------------------------------------------------
 // Display state
 // -----------------------------------------------------------------------------
-
-Display display;
 
 bool cursorOn = true;
 
 volatile bool garageDoorClosedStatus = false;
+
+// -----------------------------------------------------------------------------
+// Outage state
+// -----------------------------------------------------------------------------
+
+bool outageMode = false;
+bool outageDisplayOn = true;
+uint32_t outageStartedAt = 0;
+
+constexpr OutageProfile ACTIVE_OUTAGE_PROFILE = OUTAGE_PROFILES[0];
 
 // -----------------------------------------------------------------------------
 // MQTT state
@@ -90,35 +86,6 @@ char msgOut[MSG_BUFFER_SIZE];
 String msgStr;
 
 // -----------------------------------------------------------------------------
-// LED matrix
-// -----------------------------------------------------------------------------
-
-CRGB matrixleds[NUM_LEDS];
-
-FastLED_NeoMatrix* matrix =
-    new FastLED_NeoMatrix(
-        matrixleds,
-        MATRIX_WIDTH,
-        MATRIX_HEIGHT,
-        NEO_MATRIX_TOP +
-        NEO_MATRIX_LEFT +
-        NEO_MATRIX_COLUMNS +
-        NEO_MATRIX_ZIGZAG
-    );
-
-// RGB colors.
-//
-// The original sketch had only 3 entries but accessed colors[3] when
-// turning the colon off. The fourth entry is intentionally black/off.
-//
-const uint32_t colors[] = {
-    matrix->Color(255, 0, 0),  // 0 = red
-    matrix->Color(0, 255, 0),  // 1 = green
-    matrix->Color(0, 0, 255),  // 2 = blue
-    matrix->Color(0, 0, 0)     // 3 = off
-};
-
-// -----------------------------------------------------------------------------
 // Function declarations
 // -----------------------------------------------------------------------------
 
@@ -130,14 +97,7 @@ void callback(
 
 void reconnect();
 
-void displayTime(
-    int dispHours,
-    int dispMinutes
-);
-
-void displayGarageClosed(
-    bool closedInd
-);
+void redrawDisplay();
 
 // -----------------------------------------------------------------------------
 // MQTT callback
@@ -219,6 +179,26 @@ void reconnect() {
 }
 
 // -----------------------------------------------------------------------------
+// Display redraw helper
+// -----------------------------------------------------------------------------
+
+void redrawDisplay() {
+
+    if (!timekeeper.isValid()) {
+        return;
+    }
+
+    display.showTime(
+        timekeeper.hour(),
+        timekeeper.minute()
+    );
+
+    display.showGarageClosed(
+        garageDoorClosedStatus
+    );
+}
+
+// -----------------------------------------------------------------------------
 // Setup
 // -----------------------------------------------------------------------------
 
@@ -241,13 +221,9 @@ void setup() {
     // Display
     // -------------------------------------------------------------------------
 
-// -------------------------------------------------------------------------
-// Display
-// -------------------------------------------------------------------------
+    display.begin();
 
-display.begin();
-
-debugln("Display setup");
+    debugln("Display setup");
 
     // -------------------------------------------------------------------------
     // WiFi
@@ -279,11 +255,7 @@ debugln("Display setup");
             debugln();
             debugln("WiFi connection timeout");
 
-            matrix->fillScreen(0);
-            matrix->setCursor(0, 0);
-            matrix->setTextColor(colors[2]);
-            matrix->print("noWIFI");
-            matrix->show();
+            display.clear();
 
             delay(2000);
 
@@ -300,17 +272,7 @@ debugln("Display setup");
     // WiFi status
     // -------------------------------------------------------------------------
 
-    matrix->fillScreen(0);
-
-    matrix->setCursor(0, 0);
-
-    matrix->setTextColor(colors[1]);
-
-    matrix->print("WiFiOk");
-
-    matrix->show();
-
-    delay(1000);
+    display.clear();
 
     // -------------------------------------------------------------------------
     // Timekeeper / native SNTP
@@ -322,17 +284,7 @@ debugln("Display setup");
     // Initial time display
     // -------------------------------------------------------------------------
 
-    if (timekeeper.isValid()) {
-
-        display.showTime(
-            timekeeper.hour(),
-            timekeeper.minute()
-        );
-
-        display.showGarageClosed(
-            garageDoorClosedStatus
-        );
-    }
+    redrawDisplay();
 
     // -------------------------------------------------------------------------
     // OTA
@@ -368,6 +320,40 @@ void loop() {
 
     powerManager.update();
 
+    // Confirmed power loss starts the outage display timer.
+    if (powerManager.powerLost()) {
+
+        outageMode = true;
+        outageDisplayOn = true;
+        outageStartedAt = millis();
+
+        debugln("Outage started");
+    }
+
+    // Confirmed power restoration immediately returns to normal display mode.
+    if (powerManager.powerRestored()) {
+
+        outageMode = false;
+        outageDisplayOn = true;
+
+        debugln("Outage ended");
+
+        redrawDisplay();
+    }
+
+    // After the configured display-on period, clear the display and remain
+    // awake. Sleep and network shutdown are intentionally separate stages.
+    if (
+        outageMode &&
+        outageDisplayOn &&
+        millis() - outageStartedAt >= ACTIVE_OUTAGE_PROFILE.displayOnMs
+    ) {
+
+        outageDisplayOn = false;
+        display.clear();
+
+        debugln("Outage display off");
+    }
 
     // -------------------------------------------------------------------------
     // MQTT
@@ -395,20 +381,20 @@ void loop() {
         return;
     }
 
+    // Do not update the physical display while the outage display period has
+    // expired. Timekeeping and networking continue unchanged for this test.
+    const bool displayUpdatesAllowed =
+        !outageMode || outageDisplayOn;
+
     // -------------------------------------------------------------------------
     // Minute changed
     // -------------------------------------------------------------------------
 
     if (timekeeper.minuteChanged()) {
 
-        display.showTime(
-            timekeeper.hour(),
-            timekeeper.minute()
-        );
-
-        display.showGarageClosed(
-            garageDoorClosedStatus
-        );
+        if (displayUpdatesAllowed) {
+            redrawDisplay();
+        }
 
         msgStr =
             String(timekeeper.hour()) +
@@ -449,10 +435,13 @@ void loop() {
         // We'll decide on the ambient-light sensor input as part of the
         // hardware design rather than silently assigning a GPIO.
 
-        display.updateColon(cursorOn);
+        if (displayUpdatesAllowed) {
 
-        display.showGarageClosed(
-            garageDoorClosedStatus
-        );
+            display.updateColon(cursorOn);
+
+            display.showGarageClosed(
+                garageDoorClosedStatus
+            );
+        }
     }
 }
