@@ -82,6 +82,12 @@ uint32_t outageDisplayStateSince = 0;
 constexpr OutageProfile ACTIVE_OUTAGE_PROFILE = OUTAGE_PROFILES[0];
 
 // -----------------------------------------------------------------------------
+// OTA state
+// -----------------------------------------------------------------------------
+
+bool otaMode = false;
+
+// -----------------------------------------------------------------------------
 // MQTT state
 // -----------------------------------------------------------------------------
 
@@ -140,6 +146,7 @@ void callback(
 );
 
 void reconnect();
+void updateOtaMode();
 
 void displayTime(
     int dispHours,
@@ -256,6 +263,33 @@ void redrawDisplay() {
 }
 
 // -----------------------------------------------------------------------------
+// OTA mode
+// -----------------------------------------------------------------------------
+
+void updateOtaMode() {
+
+    const bool otaRequested =
+        digitalRead(OTA_ENABLE_PIN) == LOW;
+
+    const bool shouldBeOtaMode =
+        otaRequested && !outageNetworkOff;
+
+    if (shouldBeOtaMode == otaMode) {
+        return;
+    }
+
+    otaMode = shouldBeOtaMode;
+
+    if (otaMode) {
+        display.showMessage("OTA");
+        debugln("OTA mode enabled");
+    } else {
+        redrawDisplay();
+        debugln("OTA mode disabled");
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Setup
 // -----------------------------------------------------------------------------
 
@@ -267,6 +301,12 @@ void setup() {
 
     debugln();
     debugln("NeopixelClock ESP32 starting...");
+
+    // -------------------------------------------------------------------------
+    // OTA enable input
+    // -------------------------------------------------------------------------
+
+    pinMode(OTA_ENABLE_PIN, INPUT_PULLUP);
 
     // -------------------------------------------------------------------------
     // Power manager
@@ -377,6 +417,10 @@ void setup() {
     client.setCallback(callback);
 
     debugln("Setup complete");
+
+    // Apply the physical OTA switch state after all display/network services
+    // have been initialized.
+    updateOtaMode();
 }
 
 // -----------------------------------------------------------------------------
@@ -397,6 +441,9 @@ void loop() {
         outageDisplayOn = true;
         outageNetworkOff = false;
         outageDisplayStateSince = millis();
+
+        // OTA cannot operate after the outage network shutdown.
+        otaMode = false;
 
         debugln("Outage started");
     }
@@ -471,6 +518,12 @@ void loop() {
     }
 
     // -------------------------------------------------------------------------
+    // OTA mode
+    // -------------------------------------------------------------------------
+
+    updateOtaMode();
+
+    // -------------------------------------------------------------------------
     // MQTT
     // -------------------------------------------------------------------------
 
@@ -487,7 +540,11 @@ void loop() {
     // OTA
     // -------------------------------------------------------------------------
 
-    if (!outageNetworkOff && WiFi.status() == WL_CONNECTED) {
+    if (
+        otaMode &&
+        !outageNetworkOff &&
+        WiFi.status() == WL_CONNECTED
+    ) {
         ArduinoOTA.handle();
     }
 
@@ -502,7 +559,8 @@ void loop() {
     }
 
     const bool displayUpdatesAllowed =
-        !outageMode || outageDisplayOn;
+        !otaMode &&
+        (!outageMode || outageDisplayOn);
 
     // -------------------------------------------------------------------------
     // Minute changed
