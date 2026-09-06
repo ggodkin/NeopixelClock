@@ -272,7 +272,7 @@ void updateOtaMode() {
         digitalRead(OTA_ENABLE_PIN) == LOW;
 
     const bool shouldBeOtaMode =
-        otaRequested && !outageNetworkOff;
+        otaRequested && !outageMode && !outageNetworkOff;
 
     if (shouldBeOtaMode == otaMode) {
         return;
@@ -442,7 +442,7 @@ void loop() {
         outageNetworkOff = false;
         outageDisplayStateSince = millis();
 
-        // OTA cannot operate after the outage network shutdown.
+        // OTA cannot operate during an outage.
         otaMode = false;
 
         debugln("Outage started");
