@@ -76,7 +76,8 @@ volatile bool garageDoorClosedStatus = false;
 
 bool outageMode = false;
 bool outageDisplayOn = true;
-uint32_t outageStartedAt = 0;
+bool outageNetworkOff = false;
+uint32_t outageDisplayStateSince = 0;
 
 constexpr OutageProfile ACTIVE_OUTAGE_PROFILE = OUTAGE_PROFILES[0];
 
@@ -183,6 +184,10 @@ void callback(
 // -----------------------------------------------------------------------------
 
 void reconnect() {
+
+    if (outageNetworkOff || WiFi.status() != WL_CONNECTED) {
+        return;
+    }
 
     uint32_t nowMillis = millis();
 
@@ -390,7 +395,8 @@ void loop() {
 
         outageMode = true;
         outageDisplayOn = true;
-        outageStartedAt = millis();
+        outageNetworkOff = false;
+        outageDisplayStateSince = millis();
 
         debugln("Outage started");
     }
@@ -399,39 +405,91 @@ void loop() {
 
         outageMode = false;
         outageDisplayOn = true;
+        outageNetworkOff = false;
+        outageDisplayStateSince = millis();
 
         debugln("Outage ended");
+
+        // Restart the WiFi station. MQTT reconnect is allowed once WiFi
+        // reports WL_CONNECTED again.
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(
+            ssid,
+            password
+        );
+
+        lastMqttReconnectAttempt = millis() - MQTT_RECONNECT_INTERVAL_MS;
 
         redrawDisplay();
     }
 
-    if (
-        outageMode &&
-        outageDisplayOn &&
-        millis() - outageStartedAt >= ACTIVE_OUTAGE_PROFILE.displayOnMs
-    ) {
+    if (outageMode) {
 
-        outageDisplayOn = false;
-        display.clear();
+        uint32_t nowMillis = millis();
 
-        debugln("Outage display off");
+        if (
+            outageDisplayOn &&
+            nowMillis - outageDisplayStateSince >=
+                ACTIVE_OUTAGE_PROFILE.displayOnMs
+        ) {
+
+            // End the current 2-second display period.
+            outageDisplayOn = false;
+            outageDisplayStateSince = nowMillis;
+            display.clear();
+
+            debugln("Outage display off");
+
+            // Once the initial display period has ended, shut down networking
+            // for the remainder of the outage.
+            if (!outageNetworkOff) {
+
+                if (client.connected()) {
+                    client.disconnect();
+                }
+
+                WiFi.mode(WIFI_OFF);
+                outageNetworkOff = true;
+
+                debugln("Outage network off");
+            }
+        }
+        else if (
+            !outageDisplayOn &&
+            nowMillis - outageDisplayStateSince >=
+                ACTIVE_OUTAGE_PROFILE.intervalMs
+        ) {
+
+            // Start the next 2-second display period.
+            outageDisplayOn = true;
+            outageDisplayStateSince = nowMillis;
+
+            redrawDisplay();
+
+            debugln("Outage display on");
+        }
     }
 
     // -------------------------------------------------------------------------
     // MQTT
     // -------------------------------------------------------------------------
 
-    if (!client.connected()) {
-        reconnect();
-    }
+    if (!outageNetworkOff) {
 
-    client.loop();
+        if (!client.connected()) {
+            reconnect();
+        }
+
+        client.loop();
+    }
 
     // -------------------------------------------------------------------------
     // OTA
     // -------------------------------------------------------------------------
 
-    ArduinoOTA.handle();
+    if (!outageNetworkOff && WiFi.status() == WL_CONNECTED) {
+        ArduinoOTA.handle();
+    }
 
     // -------------------------------------------------------------------------
     // Clock
@@ -480,10 +538,12 @@ void loop() {
             msgOut
         );
 
-        client.publish(
-            "WatchBroom/Time",
-            msg
-        );
+        if (!outageNetworkOff) {
+            client.publish(
+                "WatchBroom/Time",
+                msg
+            );
+        }
 
         debugln(msg);
     }
