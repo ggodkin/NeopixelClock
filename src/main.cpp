@@ -4,15 +4,23 @@
 //
 // Current architecture:
 //   - Timekeeper: native ESP32 clock, SNTP, AceTime timezone conversion
-//   - Display: FastLED_NeoMatrix for the 32x8 display
+//   - FastLED_NeoMatrix for the 32x8 display
 //   - PubSubClient for MQTT
 //   - ArduinoOTA for OTA updates
-//   - PowerManager for confirmed USB power state
+//
+// Power-management and further modularization will be added later.
 
 #include <Arduino.h>
 
+#include <Adafruit_GFX.h>
+#include <FastLED.h>
+#include <FastLED_NeoMatrix.h>
+
 #include <WiFi.h>
+#include <ESPmDNS.h>
+#include <WiFiUdp.h>
 #include <ArduinoOTA.h>
+
 #include <PubSubClient.h>
 
 #include "config.h"
@@ -32,8 +40,6 @@
 #endif
 
 PowerManager powerManager;
-Display display;
-Timekeeper timekeeper;
 
 // -----------------------------------------------------------------------------
 // WiFi / MQTT
@@ -49,8 +55,16 @@ PubSubClient client(
 );
 
 // -----------------------------------------------------------------------------
+// Timekeeper
+// -----------------------------------------------------------------------------
+
+Timekeeper timekeeper;
+
+// -----------------------------------------------------------------------------
 // Display state
 // -----------------------------------------------------------------------------
+
+Display display;
 
 bool cursorOn = true;
 
@@ -86,6 +100,35 @@ char msgOut[MSG_BUFFER_SIZE];
 String msgStr;
 
 // -----------------------------------------------------------------------------
+// LED matrix
+// -----------------------------------------------------------------------------
+
+CRGB matrixleds[NUM_LEDS];
+
+FastLED_NeoMatrix* matrix =
+    new FastLED_NeoMatrix(
+        matrixleds,
+        MATRIX_WIDTH,
+        MATRIX_HEIGHT,
+        NEO_MATRIX_TOP +
+        NEO_MATRIX_LEFT +
+        NEO_MATRIX_COLUMNS +
+        NEO_MATRIX_ZIGZAG
+    );
+
+// RGB colors.
+//
+// The original sketch had only 3 entries but accessed colors[3] when
+// turning the colon off. The fourth entry is intentionally black/off.
+//
+const uint32_t colors[] = {
+    matrix->Color(255, 0, 0),  // 0 = red
+    matrix->Color(0, 255, 0),  // 1 = green
+    matrix->Color(0, 0, 255),  // 2 = blue
+    matrix->Color(0, 0, 0)     // 3 = off
+};
+
+// -----------------------------------------------------------------------------
 // Function declarations
 // -----------------------------------------------------------------------------
 
@@ -96,6 +139,15 @@ void callback(
 );
 
 void reconnect();
+
+void displayTime(
+    int dispHours,
+    int dispMinutes
+);
+
+void displayGarageClosed(
+    bool closedInd
+);
 
 void redrawDisplay();
 
@@ -255,7 +307,11 @@ void setup() {
             debugln();
             debugln("WiFi connection timeout");
 
-            display.clear();
+            matrix->fillScreen(0);
+            matrix->setCursor(0, 0);
+            matrix->setTextColor(colors[2]);
+            matrix->print("noWIFI");
+            matrix->show();
 
             delay(2000);
 
@@ -272,7 +328,17 @@ void setup() {
     // WiFi status
     // -------------------------------------------------------------------------
 
-    display.clear();
+    matrix->fillScreen(0);
+
+    matrix->setCursor(0, 0);
+
+    matrix->setTextColor(colors[1]);
+
+    matrix->print("WiFiOk");
+
+    matrix->show();
+
+    delay(1000);
 
     // -------------------------------------------------------------------------
     // Timekeeper / native SNTP
@@ -320,7 +386,6 @@ void loop() {
 
     powerManager.update();
 
-    // Confirmed power loss starts the outage display timer.
     if (powerManager.powerLost()) {
 
         outageMode = true;
@@ -330,7 +395,6 @@ void loop() {
         debugln("Outage started");
     }
 
-    // Confirmed power restoration immediately returns to normal display mode.
     if (powerManager.powerRestored()) {
 
         outageMode = false;
@@ -341,8 +405,6 @@ void loop() {
         redrawDisplay();
     }
 
-    // After the configured display-on period, clear the display and remain
-    // awake. Sleep and network shutdown are intentionally separate stages.
     if (
         outageMode &&
         outageDisplayOn &&
@@ -381,8 +443,6 @@ void loop() {
         return;
     }
 
-    // Do not update the physical display while the outage display period has
-    // expired. Timekeeping and networking continue unchanged for this test.
     const bool displayUpdatesAllowed =
         !outageMode || outageDisplayOn;
 
@@ -393,7 +453,14 @@ void loop() {
     if (timekeeper.minuteChanged()) {
 
         if (displayUpdatesAllowed) {
-            redrawDisplay();
+            display.showTime(
+                timekeeper.hour(),
+                timekeeper.minute()
+            );
+
+            display.showGarageClosed(
+                garageDoorClosedStatus
+            );
         }
 
         msgStr =
@@ -436,7 +503,6 @@ void loop() {
         // hardware design rather than silently assigning a GPIO.
 
         if (displayUpdatesAllowed) {
-
             display.updateColon(cursorOn);
 
             display.showGarageClosed(
