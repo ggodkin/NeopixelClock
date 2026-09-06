@@ -3,41 +3,64 @@
 #include <Arduino.h>
 
 // -----------------------------------------------------------------------------
-// Display
+// NeoPixel display
 // -----------------------------------------------------------------------------
 
 constexpr uint8_t LED_DATA_PIN = 18;
 
-constexpr uint8_t MATRIX_WIDTH  = 32;
+constexpr uint8_t MATRIX_WIDTH = 32;
 constexpr uint8_t MATRIX_HEIGHT = 8;
 
 constexpr uint16_t NUM_LEDS =
     MATRIX_WIDTH * MATRIX_HEIGHT;
 
+
 // -----------------------------------------------------------------------------
 // Main power detection
 // -----------------------------------------------------------------------------
 //
-// GPIO34 is ADC1 and input-only.
-// The actual ADC thresholds will be determined after the voltage divider
-// is designed and measured.
+// USB 5V is monitored through a voltage divider:
 //
-// Leave these at zero until the power-sense hardware is implemented.
+//     USB 5V
+//        |
+//       12k
+//        |
+//        +------ GPIO34
+//        |
+//       22k
+//        |
+//       GND
+//
+// GPIO34 is an ESP32 ADC1 input-only pin.
+//
+// Measured behavior:
+//   USB present: ADC raw approximately 4040-4080
+//   USB absent:  ADC raw approximately 0-3
+//
+// We therefore use raw ADC thresholds with substantial hysteresis.
 //
 
 constexpr uint8_t MAIN_POWER_SENSE_PIN = 34;
 
-constexpr uint16_t MAIN_POWER_PRESENT_THRESHOLD = 0;
-constexpr uint16_t MAIN_POWER_ABSENT_THRESHOLD  = 0;
+// USB is considered definitely present above this ADC value.
+constexpr uint16_t MAIN_POWER_PRESENT_THRESHOLD = 3000;
 
+// USB is considered definitely absent below this ADC value.
+constexpr uint16_t MAIN_POWER_ABSENT_THRESHOLD = 1000;
+
+// A new state must remain continuously detected for this long
+// before the state transition is accepted.
 constexpr uint32_t POWER_PRESENT_CONFIRM_MS = 1000;
-constexpr uint32_t POWER_ABSENT_CONFIRM_MS  = 1000;
+constexpr uint32_t POWER_ABSENT_CONFIRM_MS = 1000;
+
 
 // -----------------------------------------------------------------------------
-// Battery voltage monitoring
+// Battery sensing
 // -----------------------------------------------------------------------------
 
+// Reserved for future battery-voltage monitoring.
 constexpr uint8_t BATTERY_SENSE_PIN = 35;
+
 
 // -----------------------------------------------------------------------------
 // Time zone
@@ -45,12 +68,22 @@ constexpr uint8_t BATTERY_SENSE_PIN = 35;
 
 constexpr const char* TIME_ZONE = "America/Denver";
 
+
 // -----------------------------------------------------------------------------
-// Outage display profiles
+// Outage profiles
 // -----------------------------------------------------------------------------
 //
-// These are deliberately configuration values rather than hard-coded logic.
-// We will tune them after measuring the actual battery and LED current.
+// afterMs:
+//     Time after entering an outage before this profile becomes active.
+//
+// displayOnMs:
+//     How long the display remains on during an outage activity period.
+//
+// intervalMs:
+//     Time between outage activity periods.
+//
+// These values will be used by the future adaptive outage/power-saving logic.
+// They do not yet control the display or sleep behavior.
 //
 
 struct OutageProfile {
@@ -60,10 +93,9 @@ struct OutageProfile {
 };
 
 constexpr OutageProfile OUTAGE_PROFILES[] = {
-    // Initial profile:
-    // display for 2 seconds, then wake/display every 60 seconds.
-    { 0UL, 2000UL, 60000UL },
+    {0UL, 2000UL, 60000UL}
 };
 
 constexpr size_t NUM_OUTAGE_PROFILES =
     sizeof(OUTAGE_PROFILES) / sizeof(OUTAGE_PROFILES[0]);
+
