@@ -80,10 +80,14 @@ constexpr const char* TIME_ZONE = "America/Denver";
 //     How long the display remains on during an outage activity period.
 //
 // intervalMs:
-//     Time between outage activity periods.
+//     How long the display remains off between outage activity periods.
 //
-// These values will be used by the future adaptive outage/power-saving logic.
-// They do not yet control the display or sleep behavior.
+// During the outage the display therefore cycles as:
+//
+//     2 seconds ON -> 30 seconds OFF -> repeat
+//
+// These values are the initial fixed outage profile. Adaptive profiles and
+// sleep behavior will be added separately.
 //
 
 struct OutageProfile {
@@ -93,7 +97,7 @@ struct OutageProfile {
 };
 
 constexpr OutageProfile OUTAGE_PROFILES[] = {
-    {0UL, 2000UL, 60000UL}
+    {0UL, 2000UL, 30000UL}
 };
 
 constexpr size_t NUM_OUTAGE_PROFILES =
