@@ -28,6 +28,7 @@
 #include "timekeeper.h"
 #include "display.h"
 #include "power_manager.h"
+#include "device_config.h"
 
 #define DEBUG 1
 
@@ -40,13 +41,16 @@
 #endif
 
 PowerManager powerManager;
+DeviceConfig deviceConfig;
 
 // -----------------------------------------------------------------------------
 // WiFi / MQTT
 // -----------------------------------------------------------------------------
 
-const char* ssid = WIFI_SSID;
-const char* password = WIFI_PASSWORD;
+// const char* ssid = WIFI_SSID;
+// const char* password = WIFI_PASSWORD;
+const char* ssid = nullptr;
+const char* password = nullptr;
 
 WiFiClient espClient;
 
@@ -219,9 +223,8 @@ void reconnect() {
     if (
         client.connect(
             clientId.c_str(),
-            MQTT_USERNAME,
-            MQTT_PASSWORD
-        )
+            deviceConfig.mqttUsername(),
+            deviceConfig.mqttPassword()        )
     ) {
 
         debugln("connected");
@@ -323,6 +326,15 @@ void setup() {
     debugln("Display setup");
 
     // -------------------------------------------------------------------------
+    // Device configuration
+    // -------------------------------------------------------------------------
+    pinMode(CONFIG_ENABLE_PIN, INPUT_PULLUP);
+    deviceConfig.begin();
+
+    ssid = deviceConfig.wifiSsid();
+    password = deviceConfig.wifiPassword();
+
+    // -------------------------------------------------------------------------
     // WiFi
     // -------------------------------------------------------------------------
 
@@ -410,8 +422,8 @@ void setup() {
     // -------------------------------------------------------------------------
 
     client.setServer(
-        MQTT_SERVER,
-        MQTT_PORT
+        deviceConfig.mqttServer(),
+        deviceConfig.mqttPort()
     );
 
     client.setCallback(callback);

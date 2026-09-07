@@ -28,6 +28,17 @@ constexpr uint16_t NUM_LEDS =
 //
 constexpr uint8_t OTA_ENABLE_PIN = 32;
 
+// -----------------------------------------------------------------------------
+// Configuration/AP enable input
+// -----------------------------------------------------------------------------
+//
+// Active-low digital input:
+//   HIGH / open   = normal operation
+//   LOW / ground  = configuration/AP mode
+//
+// GPIO25 is a regular ESP32 GPIO and is reserved for this control.
+//
+constexpr uint8_t CONFIG_ENABLE_PIN = 25;
 
 // -----------------------------------------------------------------------------
 // Main power detection
