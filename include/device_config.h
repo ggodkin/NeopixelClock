@@ -6,6 +6,15 @@ class DeviceConfig {
 public:
     bool begin();
 
+    bool save(
+        const char* wifiSsid,
+        const char* wifiPassword,
+        const char* mqttServer,
+        uint16_t mqttPort,
+        const char* mqttUsername,
+        const char* mqttPassword
+    );
+
     const char* wifiSsid() const;
     const char* wifiPassword() const;
 
