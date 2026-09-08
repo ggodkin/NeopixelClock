@@ -165,6 +165,78 @@ bool DeviceConfig::begin() {
     return _loadedFromNvs;
 }
 
+bool DeviceConfig::save(
+    const char* wifiSsid,
+    const char* wifiPassword,
+    const char* mqttServer,
+    uint16_t mqttPort,
+    const char* mqttUsername,
+    const char* mqttPassword
+) {
+
+    if (
+        wifiSsid == nullptr ||
+        wifiPassword == nullptr ||
+        mqttServer == nullptr ||
+        mqttUsername == nullptr ||
+        mqttPassword == nullptr ||
+        mqttPort == 0
+    ) {
+        return false;
+    }
+
+    if (!preferences.begin(NVS_NAMESPACE, false)) {
+        Serial.println(
+            "DeviceConfig: unable to open NVS for writing"
+        );
+        return false;
+    }
+
+    const size_t wifiSsidLength = strlen(wifiSsid);
+    const size_t wifiPasswordLength = strlen(wifiPassword);
+    const size_t mqttServerLength = strlen(mqttServer);
+    const size_t mqttUsernameLength = strlen(mqttUsername);
+    const size_t mqttPasswordLength = strlen(mqttPassword);
+
+    if (
+        wifiSsidLength >= STRING_LENGTH ||
+        wifiPasswordLength >= STRING_LENGTH ||
+        mqttServerLength >= STRING_LENGTH ||
+        mqttUsernameLength >= STRING_LENGTH ||
+        mqttPasswordLength >= STRING_LENGTH
+    ) {
+        preferences.end();
+        return false;
+    }
+
+    const bool success =
+        preferences.putString(KEY_WIFI_SSID, wifiSsid) > 0 &&
+        preferences.putString(KEY_WIFI_PASSWORD, wifiPassword) > 0 &&
+        preferences.putString(KEY_MQTT_SERVER, mqttServer) > 0 &&
+        preferences.putUShort(KEY_MQTT_PORT, mqttPort) > 0 &&
+        preferences.putString(KEY_MQTT_USERNAME, mqttUsername) > 0 &&
+        preferences.putString(KEY_MQTT_PASSWORD, mqttPassword) > 0;
+
+    preferences.end();
+
+    if (!success) {
+        Serial.println("DeviceConfig: NVS write failed");
+        return false;
+    }
+
+    copyString(_wifiSsid, sizeof(_wifiSsid), wifiSsid);
+    copyString(_wifiPassword, sizeof(_wifiPassword), wifiPassword);
+    copyString(_mqttServer, sizeof(_mqttServer), mqttServer);
+    _mqttPort = mqttPort;
+    copyString(_mqttUsername, sizeof(_mqttUsername), mqttUsername);
+    copyString(_mqttPassword, sizeof(_mqttPassword), mqttPassword);
+    _loadedFromNvs = true;
+
+    Serial.println("DeviceConfig: configuration saved to NVS");
+
+    return true;
+}
+
 const char* DeviceConfig::wifiSsid() const {
     return _wifiSsid;
 }
