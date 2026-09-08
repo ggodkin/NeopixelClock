@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 #include "secrets.h"
+#include "config.h"
 
 namespace {
 
@@ -15,6 +16,8 @@ constexpr const char* KEY_MQTT_SERVER = "mqtt_server";
 constexpr const char* KEY_MQTT_PORT = "mqtt_port";
 constexpr const char* KEY_MQTT_USERNAME = "mqtt_user";
 constexpr const char* KEY_MQTT_PASSWORD = "mqtt_pass";
+
+constexpr const char* KEY_TIME_ZONE = "time_zone";
 
 Preferences preferences;
 
@@ -45,40 +48,13 @@ void copyString(
 
 bool DeviceConfig::begin() {
 
-    // Start with the existing compiled-in configuration.
-    // This preserves current behavior for a device that has never
-    // been provisioned through NVS.
-    copyString(
-        _wifiSsid,
-        sizeof(_wifiSsid),
-        WIFI_SSID
-    );
-
-    copyString(
-        _wifiPassword,
-        sizeof(_wifiPassword),
-        WIFI_PASSWORD
-    );
-
-    copyString(
-        _mqttServer,
-        sizeof(_mqttServer),
-        MQTT_SERVER
-    );
-
+    copyString(_wifiSsid, sizeof(_wifiSsid), WIFI_SSID);
+    copyString(_wifiPassword, sizeof(_wifiPassword), WIFI_PASSWORD);
+    copyString(_mqttServer, sizeof(_mqttServer), MQTT_SERVER);
     _mqttPort = MQTT_PORT;
-
-    copyString(
-        _mqttUsername,
-        sizeof(_mqttUsername),
-        MQTT_USERNAME
-    );
-
-    copyString(
-        _mqttPassword,
-        sizeof(_mqttPassword),
-        MQTT_PASSWORD
-    );
+    copyString(_mqttUsername, sizeof(_mqttUsername), MQTT_USERNAME);
+    copyString(_mqttPassword, sizeof(_mqttPassword), MQTT_PASSWORD);
+    copyString(_timeZone, sizeof(_timeZone), TIME_ZONE);
 
     _loadedFromNvs = false;
 
@@ -87,70 +63,23 @@ bool DeviceConfig::begin() {
         return false;
     }
 
-    const bool hasWifiSsid =
-        preferences.isKey(KEY_WIFI_SSID);
-
-    const bool hasWifiPassword =
-        preferences.isKey(KEY_WIFI_PASSWORD);
-
-    const bool hasMqttServer =
-        preferences.isKey(KEY_MQTT_SERVER);
-
-    const bool hasMqttPort =
-        preferences.isKey(KEY_MQTT_PORT);
-
-    const bool hasMqttUsername =
-        preferences.isKey(KEY_MQTT_USERNAME);
-
-    const bool hasMqttPassword =
-        preferences.isKey(KEY_MQTT_PASSWORD);
-
     const bool hasCompleteConfiguration =
-        hasWifiSsid &&
-        hasWifiPassword &&
-        hasMqttServer &&
-        hasMqttPort &&
-        hasMqttUsername &&
-        hasMqttPassword;
+        preferences.isKey(KEY_WIFI_SSID) &&
+        preferences.isKey(KEY_WIFI_PASSWORD) &&
+        preferences.isKey(KEY_MQTT_SERVER) &&
+        preferences.isKey(KEY_MQTT_PORT) &&
+        preferences.isKey(KEY_MQTT_USERNAME) &&
+        preferences.isKey(KEY_MQTT_PASSWORD) &&
+        preferences.isKey(KEY_TIME_ZONE);
 
     if (hasCompleteConfiguration) {
-
-        preferences.getString(
-            KEY_WIFI_SSID,
-            _wifiSsid,
-            sizeof(_wifiSsid)
-        );
-
-        preferences.getString(
-            KEY_WIFI_PASSWORD,
-            _wifiPassword,
-            sizeof(_wifiPassword)
-        );
-
-        preferences.getString(
-            KEY_MQTT_SERVER,
-            _mqttServer,
-            sizeof(_mqttServer)
-        );
-
-        _mqttPort =
-            preferences.getUShort(
-                KEY_MQTT_PORT,
-                MQTT_PORT
-            );
-
-        preferences.getString(
-            KEY_MQTT_USERNAME,
-            _mqttUsername,
-            sizeof(_mqttUsername)
-        );
-
-        preferences.getString(
-            KEY_MQTT_PASSWORD,
-            _mqttPassword,
-            sizeof(_mqttPassword)
-        );
-
+        preferences.getString(KEY_WIFI_SSID, _wifiSsid, sizeof(_wifiSsid));
+        preferences.getString(KEY_WIFI_PASSWORD, _wifiPassword, sizeof(_wifiPassword));
+        preferences.getString(KEY_MQTT_SERVER, _mqttServer, sizeof(_mqttServer));
+        _mqttPort = preferences.getUShort(KEY_MQTT_PORT, MQTT_PORT);
+        preferences.getString(KEY_MQTT_USERNAME, _mqttUsername, sizeof(_mqttUsername));
+        preferences.getString(KEY_MQTT_PASSWORD, _mqttPassword, sizeof(_mqttPassword));
+        preferences.getString(KEY_TIME_ZONE, _timeZone, sizeof(_timeZone));
         _loadedFromNvs = true;
     }
 
@@ -171,41 +100,30 @@ bool DeviceConfig::save(
     const char* mqttServer,
     uint16_t mqttPort,
     const char* mqttUsername,
-    const char* mqttPassword
+    const char* mqttPassword,
+    const char* timeZone
 ) {
-
-    if (
-        wifiSsid == nullptr ||
+    if (wifiSsid == nullptr ||
         wifiPassword == nullptr ||
         mqttServer == nullptr ||
         mqttUsername == nullptr ||
         mqttPassword == nullptr ||
-        mqttPort == 0
-    ) {
+        timeZone == nullptr ||
+        mqttPort == 0) {
+        return false;
+    }
+
+    if (strlen(wifiSsid) >= STRING_LENGTH ||
+        strlen(wifiPassword) >= STRING_LENGTH ||
+        strlen(mqttServer) >= STRING_LENGTH ||
+        strlen(mqttUsername) >= STRING_LENGTH ||
+        strlen(mqttPassword) >= STRING_LENGTH ||
+        strlen(timeZone) >= STRING_LENGTH) {
         return false;
     }
 
     if (!preferences.begin(NVS_NAMESPACE, false)) {
-        Serial.println(
-            "DeviceConfig: unable to open NVS for writing"
-        );
-        return false;
-    }
-
-    const size_t wifiSsidLength = strlen(wifiSsid);
-    const size_t wifiPasswordLength = strlen(wifiPassword);
-    const size_t mqttServerLength = strlen(mqttServer);
-    const size_t mqttUsernameLength = strlen(mqttUsername);
-    const size_t mqttPasswordLength = strlen(mqttPassword);
-
-    if (
-        wifiSsidLength >= STRING_LENGTH ||
-        wifiPasswordLength >= STRING_LENGTH ||
-        mqttServerLength >= STRING_LENGTH ||
-        mqttUsernameLength >= STRING_LENGTH ||
-        mqttPasswordLength >= STRING_LENGTH
-    ) {
-        preferences.end();
+        Serial.println("DeviceConfig: unable to open NVS for writing");
         return false;
     }
 
@@ -215,7 +133,8 @@ bool DeviceConfig::save(
         preferences.putString(KEY_MQTT_SERVER, mqttServer) > 0 &&
         preferences.putUShort(KEY_MQTT_PORT, mqttPort) > 0 &&
         preferences.putString(KEY_MQTT_USERNAME, mqttUsername) > 0 &&
-        preferences.putString(KEY_MQTT_PASSWORD, mqttPassword) > 0;
+        preferences.putString(KEY_MQTT_PASSWORD, mqttPassword) > 0 &&
+        preferences.putString(KEY_TIME_ZONE, timeZone) > 0;
 
     preferences.end();
 
@@ -230,37 +149,18 @@ bool DeviceConfig::save(
     _mqttPort = mqttPort;
     copyString(_mqttUsername, sizeof(_mqttUsername), mqttUsername);
     copyString(_mqttPassword, sizeof(_mqttPassword), mqttPassword);
+    copyString(_timeZone, sizeof(_timeZone), timeZone);
     _loadedFromNvs = true;
 
     Serial.println("DeviceConfig: configuration saved to NVS");
-
     return true;
 }
 
-const char* DeviceConfig::wifiSsid() const {
-    return _wifiSsid;
-}
-
-const char* DeviceConfig::wifiPassword() const {
-    return _wifiPassword;
-}
-
-const char* DeviceConfig::mqttServer() const {
-    return _mqttServer;
-}
-
-uint16_t DeviceConfig::mqttPort() const {
-    return _mqttPort;
-}
-
-const char* DeviceConfig::mqttUsername() const {
-    return _mqttUsername;
-}
-
-const char* DeviceConfig::mqttPassword() const {
-    return _mqttPassword;
-}
-
-bool DeviceConfig::loadedFromNvs() const {
-    return _loadedFromNvs;
-}
+const char* DeviceConfig::wifiSsid() const { return _wifiSsid; }
+const char* DeviceConfig::wifiPassword() const { return _wifiPassword; }
+const char* DeviceConfig::mqttServer() const { return _mqttServer; }
+uint16_t DeviceConfig::mqttPort() const { return _mqttPort; }
+const char* DeviceConfig::mqttUsername() const { return _mqttUsername; }
+const char* DeviceConfig::mqttPassword() const { return _mqttPassword; }
+const char* DeviceConfig::timeZone() const { return _timeZone; }
+bool DeviceConfig::loadedFromNvs() const { return _loadedFromNvs; }
