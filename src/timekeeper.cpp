@@ -38,8 +38,7 @@ bool Timekeeper::begin(const char* timeZone) {
     _timeZone = zoneManager.createForZoneName(timeZone);
 
     if (_timeZone.isError()) {
-        Serial.print("Timekeeper: invalid time zone '"
-                     );
+        Serial.print("Timekeeper: invalid time zone '");
         Serial.print(timeZone);
         Serial.println("', falling back to compiled-in default");
 
@@ -52,7 +51,7 @@ bool Timekeeper::begin(const char* timeZone) {
     }
 
     Serial.print("Time zone: ");
-    Serial.println(_timeZone.getName());
+    Serial.println(timeZone);
     Serial.println("Starting native SNTP...");
 
     // SNTP supplies UTC epoch seconds. AceTime performs the local-time
