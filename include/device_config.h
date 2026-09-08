@@ -12,7 +12,8 @@ public:
         const char* mqttServer,
         uint16_t mqttPort,
         const char* mqttUsername,
-        const char* mqttPassword
+        const char* mqttPassword,
+        const char* timeZone
     );
 
     const char* wifiSsid() const;
@@ -22,6 +23,8 @@ public:
     uint16_t mqttPort() const;
     const char* mqttUsername() const;
     const char* mqttPassword() const;
+
+    const char* timeZone() const;
 
     bool loadedFromNvs() const;
 
@@ -35,6 +38,8 @@ private:
     uint16_t _mqttPort = 1883;
     char _mqttUsername[STRING_LENGTH] = {};
     char _mqttPassword[STRING_LENGTH] = {};
+
+    char _timeZone[STRING_LENGTH] = {};
 
     bool _loadedFromNvs = false;
 };
