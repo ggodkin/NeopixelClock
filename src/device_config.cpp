@@ -21,11 +21,7 @@ constexpr const char* KEY_TIME_ZONE = "time_zone";
 
 Preferences preferences;
 
-void copyString(
-    char* destination,
-    size_t destinationSize,
-    const char* source
-) {
+void copyString(char* destination, size_t destinationSize, const char* source) {
     if (destinationSize == 0) {
         return;
     }
@@ -35,19 +31,13 @@ void copyString(
         return;
     }
 
-    strncpy(
-        destination,
-        source,
-        destinationSize - 1
-    );
-
+    strncpy(destination, source, destinationSize - 1);
     destination[destinationSize - 1] = '\0';
 }
 
 } // namespace
 
 bool DeviceConfig::begin() {
-
     copyString(_wifiSsid, sizeof(_wifiSsid), WIFI_SSID);
     copyString(_wifiPassword, sizeof(_wifiPassword), WIFI_PASSWORD);
     copyString(_mqttServer, sizeof(_mqttServer), MQTT_SERVER);
@@ -63,23 +53,29 @@ bool DeviceConfig::begin() {
         return false;
     }
 
-    const bool hasCompleteConfiguration =
+    // The original Stage 1/2 configuration did not contain a timezone key.
+    // Keep those configurations valid and use the compiled-in timezone until
+    // the user explicitly saves a new configuration.
+    const bool hasNetworkConfiguration =
         preferences.isKey(KEY_WIFI_SSID) &&
         preferences.isKey(KEY_WIFI_PASSWORD) &&
         preferences.isKey(KEY_MQTT_SERVER) &&
         preferences.isKey(KEY_MQTT_PORT) &&
         preferences.isKey(KEY_MQTT_USERNAME) &&
-        preferences.isKey(KEY_MQTT_PASSWORD) &&
-        preferences.isKey(KEY_TIME_ZONE);
+        preferences.isKey(KEY_MQTT_PASSWORD);
 
-    if (hasCompleteConfiguration) {
+    if (hasNetworkConfiguration) {
         preferences.getString(KEY_WIFI_SSID, _wifiSsid, sizeof(_wifiSsid));
         preferences.getString(KEY_WIFI_PASSWORD, _wifiPassword, sizeof(_wifiPassword));
         preferences.getString(KEY_MQTT_SERVER, _mqttServer, sizeof(_mqttServer));
         _mqttPort = preferences.getUShort(KEY_MQTT_PORT, MQTT_PORT);
         preferences.getString(KEY_MQTT_USERNAME, _mqttUsername, sizeof(_mqttUsername));
         preferences.getString(KEY_MQTT_PASSWORD, _mqttPassword, sizeof(_mqttPassword));
-        preferences.getString(KEY_TIME_ZONE, _timeZone, sizeof(_timeZone));
+
+        if (preferences.isKey(KEY_TIME_ZONE)) {
+            preferences.getString(KEY_TIME_ZONE, _timeZone, sizeof(_timeZone));
+        }
+
         _loadedFromNvs = true;
     }
 
