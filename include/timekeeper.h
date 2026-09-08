@@ -4,7 +4,7 @@
 
 class Timekeeper {
 public:
-    bool begin();
+    bool begin(const char* timeZone);
     void update();
 
     bool isValid() const;
