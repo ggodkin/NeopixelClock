@@ -127,6 +127,14 @@ void ConfigPortal::handleRoot() {
     html += htmlEscape(String(_deviceConfig->mqttPassword()));
     html += "\"></label></p>";
 
+    html += "<hr>";
+
+    html += "<p><label>Time Zone (IANA)<br>";
+    html += "<input type=\"text\" name=\"time_zone\" maxlength=\"127\" required value=\"";
+    html += htmlEscape(String(_deviceConfig->timeZone()));
+    html += "\"></label></p>";
+    html += "<p>Examples: America/Denver, America/New_York, America/Los_Angeles, UTC</p>";
+
     html += "<p><button type=\"submit\">Save Configuration</button></p>";
     html += "</form></body></html>";
 
@@ -145,7 +153,8 @@ void ConfigPortal::handleSave() {
         "mqtt_server",
         "mqtt_port",
         "mqtt_username",
-        "mqtt_password"
+        "mqtt_password",
+        "time_zone"
     };
 
     for (const char* field : fields) {
@@ -161,13 +170,15 @@ void ConfigPortal::handleSave() {
     const String mqttPortString = server.arg("mqtt_port");
     const String mqttUsername = server.arg("mqtt_username");
     const String mqttPassword = server.arg("mqtt_password");
+    const String timeZone = server.arg("time_zone");
 
     const long mqttPort = mqttPortString.toInt();
 
     if (wifiSsid.length() == 0 ||
         mqttServer.length() == 0 ||
         mqttPort < 1 ||
-        mqttPort > 65535) {
+        mqttPort > 65535 ||
+        timeZone.length() == 0) {
         server.send(400, "text/plain", "Invalid configuration");
         return;
     }
@@ -178,7 +189,8 @@ void ConfigPortal::handleSave() {
             mqttServer.c_str(),
             static_cast<uint16_t>(mqttPort),
             mqttUsername.c_str(),
-            mqttPassword.c_str())) {
+            mqttPassword.c_str(),
+            timeZone.c_str())) {
         server.send(500, "text/plain", "Failed to save configuration");
         return;
     }
