@@ -29,6 +29,7 @@
 #include "display.h"
 #include "power_manager.h"
 #include "device_config.h"
+#include "config_portal.h"
 
 #define DEBUG 1
 
@@ -42,13 +43,13 @@
 
 PowerManager powerManager;
 DeviceConfig deviceConfig;
+ConfigPortal configPortal;
+bool configurationMode = false;
 
 // -----------------------------------------------------------------------------
 // WiFi / MQTT
 // -----------------------------------------------------------------------------
 
-// const char* ssid = WIFI_SSID;
-// const char* password = WIFI_PASSWORD;
 const char* ssid = nullptr;
 const char* password = nullptr;
 
@@ -127,16 +128,11 @@ FastLED_NeoMatrix* matrix =
         NEO_MATRIX_ZIGZAG
     );
 
-// RGB colors.
-//
-// The original sketch had only 3 entries but accessed colors[3] when
-// turning the colon off. The fourth entry is intentionally black/off.
-//
 const uint32_t colors[] = {
-    matrix->Color(255, 0, 0),  // 0 = red
-    matrix->Color(0, 255, 0),  // 1 = green
-    matrix->Color(0, 0, 255),  // 2 = blue
-    matrix->Color(0, 0, 0)     // 3 = off
+    matrix->Color(255, 0, 0),
+    matrix->Color(0, 255, 0),
+    matrix->Color(0, 0, 255),
+    matrix->Color(0, 0, 0)
 };
 
 // -----------------------------------------------------------------------------
@@ -224,7 +220,8 @@ void reconnect() {
         client.connect(
             clientId.c_str(),
             deviceConfig.mqttUsername(),
-            deviceConfig.mqttPassword()        )
+            deviceConfig.mqttPassword()
+        )
     ) {
 
         debugln("connected");
@@ -328,8 +325,32 @@ void setup() {
     // -------------------------------------------------------------------------
     // Device configuration
     // -------------------------------------------------------------------------
+
     pinMode(CONFIG_ENABLE_PIN, INPUT_PULLUP);
+
+    const bool configurationRequested =
+        digitalRead(CONFIG_ENABLE_PIN) == LOW;
+
+    configurationMode = configurationRequested;
+
     deviceConfig.begin();
+
+    if (configurationMode) {
+
+        display.showMessage("CONFIG");
+
+        debugln("Configuration mode requested");
+
+        if (!configPortal.begin(deviceConfig)) {
+            debugln("Configuration portal failed");
+
+            while (true) {
+                delay(1000);
+            }
+        }
+
+        return;
+    }
 
     ssid = deviceConfig.wifiSsid();
     password = deviceConfig.wifiPassword();
@@ -430,8 +451,6 @@ void setup() {
 
     debugln("Setup complete");
 
-    // Apply the physical OTA switch state after all display/network services
-    // have been initialized.
     updateOtaMode();
 }
 
@@ -440,6 +459,14 @@ void setup() {
 // -----------------------------------------------------------------------------
 
 void loop() {
+
+    // Configuration mode is selected only at boot. No normal networking,
+    // OTA, clock, or outage processing is performed while the portal runs.
+    if (configurationMode) {
+        configPortal.handle();
+        delay(2);
+        return;
+    }
 
     // -------------------------------------------------------------------------
     // Power management
@@ -454,7 +481,6 @@ void loop() {
         outageNetworkOff = false;
         outageDisplayStateSince = millis();
 
-        // OTA cannot operate during an outage.
         otaMode = false;
 
         debugln("Outage started");
@@ -469,8 +495,6 @@ void loop() {
 
         debugln("Outage ended");
 
-        // Restart the WiFi station. MQTT reconnect is allowed once WiFi
-        // reports WL_CONNECTED again.
         WiFi.mode(WIFI_STA);
         WiFi.begin(
             ssid,
@@ -492,15 +516,12 @@ void loop() {
                 ACTIVE_OUTAGE_PROFILE.displayOnMs
         ) {
 
-            // End the current 2-second display period.
             outageDisplayOn = false;
             outageDisplayStateSince = nowMillis;
             display.clear();
 
             debugln("Outage display off");
 
-            // Once the initial display period has ended, shut down networking
-            // for the remainder of the outage.
             if (!outageNetworkOff) {
 
                 if (client.connected()) {
@@ -519,7 +540,6 @@ void loop() {
                 ACTIVE_OUTAGE_PROFILE.intervalMs
         ) {
 
-            // Start the next 2-second display period.
             outageDisplayOn = true;
             outageDisplayStateSince = nowMillis;
 
@@ -625,12 +645,6 @@ void loop() {
     if (timekeeper.secondChanged()) {
 
         cursorOn = !cursorOn;
-
-        // Ambient-light handling is intentionally NOT migrated yet.
-        //
-        // The ESP8266 A0 pin has no equivalent clean-sheet hardware mapping.
-        // We'll decide on the ambient-light sensor input as part of the
-        // hardware design rather than silently assigning a GPIO.
 
         if (displayUpdatesAllowed) {
             display.updateColon(cursorOn);
