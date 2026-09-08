@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include <AceTime.h>
+
 class Timekeeper {
 public:
     bool begin(const char* timeZone);
@@ -40,4 +42,7 @@ private:
 
     bool _minuteChanged = false;
     bool _secondChanged = false;
+
+    ace_time::BasicZoneProcessor _zoneProcessor;
+    ace_time::TimeZone _timeZone;
 };
