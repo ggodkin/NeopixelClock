@@ -50,12 +50,11 @@ bool DeviceConfig::begin() {
 
     if (!preferences.begin(NVS_NAMESPACE, true)) {
         Serial.println("DeviceConfig: NVS unavailable, using defaults");
+        Serial.print("DeviceConfig: timezone = ");
+        Serial.println(_timeZone);
         return false;
     }
 
-    // The original Stage 1/2 configuration did not contain a timezone key.
-    // Keep those configurations valid and use the compiled-in timezone until
-    // the user explicitly saves a new configuration.
     const bool hasNetworkConfiguration =
         preferences.isKey(KEY_WIFI_SSID) &&
         preferences.isKey(KEY_WIFI_PASSWORD) &&
@@ -86,6 +85,9 @@ bool DeviceConfig::begin() {
     } else {
         Serial.println("DeviceConfig: using compiled-in defaults");
     }
+
+    Serial.print("DeviceConfig: timezone = ");
+    Serial.println(_timeZone);
 
     return _loadedFromNvs;
 }
@@ -149,6 +151,8 @@ bool DeviceConfig::save(
     _loadedFromNvs = true;
 
     Serial.println("DeviceConfig: configuration saved to NVS");
+    Serial.print("DeviceConfig: saved timezone = ");
+    Serial.println(_timeZone);
     return true;
 }
 
