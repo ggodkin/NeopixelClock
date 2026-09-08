@@ -3,6 +3,10 @@
 #include <Arduino.h>
 #include <time.h>
 
+#include "config.h"
+
+using namespace ace_time;
+
 namespace {
 
 constexpr const char* NTP_SERVER_1 = "pool.ntp.org";
@@ -10,6 +14,17 @@ constexpr const char* NTP_SERVER_2 = "time.nist.gov";
 constexpr const char* NTP_SERVER_3 = "time.google.com";
 
 constexpr uint32_t NTP_TIMEOUT_MS = 15000;
+
+// The configuration portal allows the user to select any IANA timezone name,
+// so use AceTime's complete extended registry rather than compiling in a
+// single timezone.
+constexpr uint8_t TIME_ZONE_CACHE_SIZE = 2;
+
+ExtendedZoneProcessorCache<TIME_ZONE_CACHE_SIZE> zoneProcessorCache;
+ExtendedZoneManager zoneManager(
+    zonedbx::kZoneAndLinkRegistrySize,
+    zonedbx::kZoneAndLinkRegistry,
+    zoneProcessorCache);
 
 } // namespace
 
@@ -20,15 +35,28 @@ bool Timekeeper::begin(const char* timeZone) {
         return false;
     }
 
-    // The ESP32 C library uses the TZ environment variable for local-time
-    // conversion, including daylight-saving rules for supported zone names.
-    setenv("TZ", timeZone, 1);
-    tzset();
+    _timeZone = zoneManager.createForZoneName(timeZone);
+
+    if (_timeZone.isError()) {
+        Serial.print("Timekeeper: invalid time zone '"
+                     );
+        Serial.print(timeZone);
+        Serial.println("', falling back to compiled-in default");
+
+        _timeZone = zoneManager.createForZoneName(TIME_ZONE);
+
+        if (_timeZone.isError()) {
+            Serial.println("Timekeeper: compiled-in time zone is invalid");
+            return false;
+        }
+    }
 
     Serial.print("Time zone: ");
-    Serial.println(timeZone);
+    Serial.println(_timeZone.getName());
     Serial.println("Starting native SNTP...");
 
+    // SNTP supplies UTC epoch seconds. AceTime performs the local-time
+    // conversion below, so no ESP32 libc TZ configuration is required.
     configTime(
         0,
         0,
@@ -58,20 +86,21 @@ bool Timekeeper::begin(const char* timeZone) {
         return false;
     }
 
-    char timeBuffer[64];
-
-    strftime(
-        timeBuffer,
-        sizeof(timeBuffer),
-        "%Y-%m-%d %H:%M:%S",
-        &timeinfo
-    );
-
     Serial.println("NTP synchronized!");
-    Serial.print("Local time: ");
-    Serial.println(timeBuffer);
 
     update();
+
+    if (_valid) {
+        Serial.print("Local time: ");
+        Serial.printf(
+            "%04d-%02d-%02d %02d:%02d:%02d\n",
+            _year,
+            _month,
+            _day,
+            _hour,
+            _minute,
+            _second);
+    }
 
     return _valid;
 }
@@ -83,28 +112,31 @@ void Timekeeper::update() {
 
     _unixSeconds = static_cast<int64_t>(now);
 
-    struct tm localTime;
+    // Convert the UTC epoch supplied by SNTP using the configured AceTime
+    // timezone. This applies the correct DST rules for the selected IANA zone.
+    ZonedDateTime localTime = ZonedDateTime::forUnixSeconds64(
+        _unixSeconds,
+        _timeZone);
 
-    if (localtime_r(&now, &localTime) == nullptr) {
+    if (!localTime.isError()) {
+        _year = localTime.year();
+        _month = localTime.month();
+        _day = localTime.day();
+
+        _hour = localTime.hour();
+        _minute = localTime.minute();
+        _second = localTime.second();
+
+        _minuteChanged = (_minute != _previousMinute);
+        _secondChanged = (_unixSeconds != _previousSecond);
+
+        _previousMinute = _minute;
+        _previousSecond = _unixSeconds;
+
+        _valid = true;
+    } else {
         _valid = false;
-        return;
     }
-
-    _year = localTime.tm_year + 1900;
-    _month = localTime.tm_mon + 1;
-    _day = localTime.tm_mday;
-
-    _hour = localTime.tm_hour;
-    _minute = localTime.tm_min;
-    _second = localTime.tm_sec;
-
-    _minuteChanged = (_minute != _previousMinute);
-    _secondChanged = (_unixSeconds != _previousSecond);
-
-    _previousMinute = _minute;
-    _previousSecond = _unixSeconds;
-
-    _valid = true;
 }
 
 bool Timekeeper::isValid() const { return _valid; }
