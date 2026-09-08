@@ -15,9 +15,6 @@ constexpr const char* NTP_SERVER_3 = "time.google.com";
 
 constexpr uint32_t NTP_TIMEOUT_MS = 15000;
 
-// The configuration portal allows the user to select any IANA timezone name,
-// so use AceTime's complete extended registry rather than compiling in a
-// single timezone.
 constexpr uint8_t TIME_ZONE_CACHE_SIZE = 2;
 
 ExtendedZoneProcessorCache<TIME_ZONE_CACHE_SIZE> zoneProcessorCache;
@@ -35,6 +32,9 @@ bool Timekeeper::begin(const char* timeZone) {
         return false;
     }
 
+    Serial.print("Timekeeper: requested timezone = ");
+    Serial.println(timeZone);
+
     _timeZone = zoneManager.createForZoneName(timeZone);
 
     if (_timeZone.isError()) {
@@ -50,8 +50,10 @@ bool Timekeeper::begin(const char* timeZone) {
         }
     }
 
-    Serial.print("Time zone: ");
-    Serial.println(timeZone);
+    Serial.print("Timekeeper: resolved timezone = ");
+    _timeZone.printTo(Serial);
+    Serial.println();
+
     Serial.println("Starting native SNTP...");
 
     // SNTP supplies UTC epoch seconds. AceTime performs the local-time
@@ -99,6 +101,11 @@ bool Timekeeper::begin(const char* timeZone) {
             _hour,
             _minute,
             _second);
+
+        ZonedExtra extra = _timeZone.getZonedExtra(_unixSeconds);
+        Serial.print("UTC offset: ");
+        extra.timeOffset().printTo(Serial);
+        Serial.println();
     }
 
     return _valid;
