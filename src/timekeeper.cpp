@@ -3,13 +3,7 @@
 #include <Arduino.h>
 #include <time.h>
 
-#include <AceTime.h>
-
-using namespace ace_time;
-
 namespace {
-
-BasicZoneProcessor denverProcessor;
 
 constexpr const char* NTP_SERVER_1 = "pool.ntp.org";
 constexpr const char* NTP_SERVER_2 = "time.nist.gov";
@@ -19,8 +13,20 @@ constexpr uint32_t NTP_TIMEOUT_MS = 15000;
 
 } // namespace
 
-bool Timekeeper::begin() {
+bool Timekeeper::begin(const char* timeZone) {
 
+    if (timeZone == nullptr || timeZone[0] == '\0') {
+        Serial.println("Timekeeper: invalid time zone");
+        return false;
+    }
+
+    // The ESP32 C library uses the TZ environment variable for local-time
+    // conversion, including daylight-saving rules for supported zone names.
+    setenv("TZ", timeZone, 1);
+    tzset();
+
+    Serial.print("Time zone: ");
+    Serial.println(timeZone);
     Serial.println("Starting native SNTP...");
 
     configTime(
@@ -34,20 +40,11 @@ bool Timekeeper::begin() {
     Serial.println("Waiting for NTP time...");
 
     struct tm timeinfo;
-
     uint32_t ntpStart = millis();
-
     bool ntpValid = false;
 
-    while (
-        !ntpValid &&
-        millis() - ntpStart < NTP_TIMEOUT_MS
-    ) {
-
-        ntpValid = getLocalTime(
-            &timeinfo,
-            1000
-        );
+    while (!ntpValid && millis() - ntpStart < NTP_TIMEOUT_MS) {
+        ntpValid = getLocalTime(&timeinfo, 1000);
 
         if (!ntpValid) {
             Serial.print(".");
@@ -71,38 +68,10 @@ bool Timekeeper::begin() {
     );
 
     Serial.println("NTP synchronized!");
-
-    Serial.print("System time: ");
+    Serial.print("Local time: ");
     Serial.println(timeBuffer);
 
     update();
-
-    if (_valid) {
-        Serial.print("Denver time: ");
-
-        Serial.print(_year);
-        Serial.print("-");
-        Serial.print(_month);
-        Serial.print("-");
-        Serial.print(_day);
-        Serial.print(" ");
-
-        Serial.print(_hour);
-        Serial.print(":");
-
-        if (_minute < 10) {
-            Serial.print("0");
-        }
-
-        Serial.print(_minute);
-        Serial.print(":");
-
-        if (_second < 10) {
-            Serial.print("0");
-        }
-
-        Serial.println(_second);
-    }
 
     return _valid;
 }
@@ -110,37 +79,27 @@ bool Timekeeper::begin() {
 void Timekeeper::update() {
 
     time_t now;
-
     time(&now);
 
-    _unixSeconds =
-        static_cast<int64_t>(now);
+    _unixSeconds = static_cast<int64_t>(now);
 
-    auto denverTz =
-        TimeZone::forZoneInfo(
-            &zonedb::kZoneAmerica_Denver,
-            &denverProcessor
-        );
+    struct tm localTime;
 
-    auto denverTime =
-        ZonedDateTime::forUnixSeconds64(
-            _unixSeconds,
-            denverTz
-        );
+    if (localtime_r(&now, &localTime) == nullptr) {
+        _valid = false;
+        return;
+    }
 
-    _year = denverTime.year();
-    _month = denverTime.month();
-    _day = denverTime.day();
+    _year = localTime.tm_year + 1900;
+    _month = localTime.tm_mon + 1;
+    _day = localTime.tm_mday;
 
-    _hour = denverTime.hour();
-    _minute = denverTime.minute();
-    _second = denverTime.second();
+    _hour = localTime.tm_hour;
+    _minute = localTime.tm_min;
+    _second = localTime.tm_sec;
 
-    _minuteChanged =
-        (_minute != _previousMinute);
-
-    _secondChanged =
-        (_unixSeconds != _previousSecond);
+    _minuteChanged = (_minute != _previousMinute);
+    _secondChanged = (_unixSeconds != _previousSecond);
 
     _previousMinute = _minute;
     _previousSecond = _unixSeconds;
@@ -148,42 +107,13 @@ void Timekeeper::update() {
     _valid = true;
 }
 
-bool Timekeeper::isValid() const {
-    return _valid;
-}
-
-int Timekeeper::year() const {
-    return _year;
-}
-
-int Timekeeper::month() const {
-    return _month;
-}
-
-int Timekeeper::day() const {
-    return _day;
-}
-
-int Timekeeper::hour() const {
-    return _hour;
-}
-
-int Timekeeper::minute() const {
-    return _minute;
-}
-
-int Timekeeper::second() const {
-    return _second;
-}
-
-int64_t Timekeeper::unixSeconds() const {
-    return _unixSeconds;
-}
-
-bool Timekeeper::minuteChanged() const {
-    return _minuteChanged;
-}
-
-bool Timekeeper::secondChanged() const {
-    return _secondChanged;
-}
+bool Timekeeper::isValid() const { return _valid; }
+int Timekeeper::year() const { return _year; }
+int Timekeeper::month() const { return _month; }
+int Timekeeper::day() const { return _day; }
+int Timekeeper::hour() const { return _hour; }
+int Timekeeper::minute() const { return _minute; }
+int Timekeeper::second() const { return _second; }
+int64_t Timekeeper::unixSeconds() const { return _unixSeconds; }
+bool Timekeeper::minuteChanged() const { return _minuteChanged; }
+bool Timekeeper::secondChanged() const { return _secondChanged; }
