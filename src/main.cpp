@@ -184,6 +184,19 @@ void setup() {
     pinMode(OTA_ENABLE_PIN, INPUT_PULLUP);
 
     powerManager.begin();
+
+    // If the ESP32 boots while main power is already absent, there is no
+    // power-loss transition for PowerManager to generate. Enter outage mode
+    // immediately so the normal outage state machine is active on the first
+    // pass through loop().
+    if (powerManager.isOutage()) {
+        outageMode = true;
+        outageDisplayOn = true;
+        outageNetworkOff = false;
+        outageDisplayStateSince = millis();
+        debugln("Booting in outage mode");
+    }
+
     display.begin();
     debugln("Display setup");
 
