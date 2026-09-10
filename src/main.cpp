@@ -187,18 +187,24 @@ void setup() {
 
     // If the ESP32 boots while main power is already absent, there is no
     // power-loss transition for PowerManager to generate. Enter outage mode
-    // immediately so the normal outage state machine is active on the first
-    // pass through loop().
-    if (powerManager.isOutage()) {
+    // immediately, but start the display timer only after display.begin().
+    const bool bootingInOutage = powerManager.isOutage();
+
+    if (bootingInOutage) {
         outageMode = true;
         outageDisplayOn = true;
         outageNetworkOff = false;
-        outageDisplayStateSince = millis();
         debugln("Booting in outage mode");
     }
 
     display.begin();
     debugln("Display setup");
+
+    // The outage ON interval must begin when the display is actually ready,
+    // not before the potentially long setup sequence.
+    if (bootingInOutage) {
+        outageDisplayStateSince = millis();
+    }
 
     pinMode(CONFIG_ENABLE_PIN, INPUT_PULLUP);
 
@@ -223,6 +229,14 @@ void setup() {
 
     ssid = deviceConfig.wifiSsid();
     password = deviceConfig.wifiPassword();
+
+    // When booting from battery/main-power outage, do not start WiFi, NTP,
+    // MQTT, or OTA. The outage state machine will shut the network down after
+    // the initial display interval and handle the display duty cycle.
+    if (outageMode) {
+        debugln("Skipping WiFi/NTP/MQTT/OTA startup during outage");
+        return;
+    }
 
     debugln("Before WiFi.mode()");
     WiFi.mode(WIFI_STA);
@@ -349,7 +363,11 @@ void loop() {
         ArduinoOTA.handle();
     }
 
-    timekeeper.update();
+    // Timekeeper is not initialized when the unit boots directly into outage
+    // mode, so do not call update() until it has been initialized.
+    if (!outageMode || timekeeper.isValid()) {
+        timekeeper.update();
+    }
 
     if (!timekeeper.isValid()) {
         return;
