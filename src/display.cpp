@@ -45,17 +45,26 @@ constexpr int WIFI_STATUS_Y = 5;
 constexpr int NTP_STATUS_Y = 6;
 constexpr int MQTT_STATUS_Y = 7;
 
-uint32_t statusColor(NetworkStatus status) {
+CRGB statusColor(NetworkStatus status) {
     switch (status) {
         case NetworkStatus::ATTEMPTING:
-            return colors[4];
+            return CRGB(255, 255, 0);
         case NetworkStatus::FAILED:
-            return colors[0];
+            return CRGB(255, 0, 0);
         case NetworkStatus::CONNECTED:
-            return colors[2];
+            return CRGB(0, 0, 255);
     }
 
-    return colors[3];
+    return CRGB::Black;
+}
+
+void applyNetworkStatusIndicators() {
+    // Write the status pixels directly into the FastLED buffer. This keeps
+    // the indicators independent of the GFX drawing operations used for the
+    // clock, colon, garage indicator, and messages.
+    matrixleds[matrix.XY(STATUS_X, WIFI_STATUS_Y)] = statusColor(
+        NetworkStatus::ATTEMPTING
+    );
 }
 
 } // namespace
@@ -140,8 +149,10 @@ void Display::clear() {
 }
 
 void Display::show() {
-    matrix.drawPixel(STATUS_X, WIFI_STATUS_Y, statusColor(_wifiStatus));
-    matrix.drawPixel(STATUS_X, NTP_STATUS_Y, statusColor(_ntpStatus));
-    matrix.drawPixel(STATUS_X, MQTT_STATUS_Y, statusColor(_mqttStatus));
+    // Status indicators are applied last, after all other GFX drawing, so
+    // clearing/redrawing the clock cannot erase them.
+    matrixleds[matrix.XY(STATUS_X, WIFI_STATUS_Y)] = statusColor(_wifiStatus);
+    matrixleds[matrix.XY(STATUS_X, NTP_STATUS_Y)] = statusColor(_ntpStatus);
+    matrixleds[matrix.XY(STATUS_X, MQTT_STATUS_Y)] = statusColor(_mqttStatus);
     matrix.show();
 }
