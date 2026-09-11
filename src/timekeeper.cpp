@@ -4,6 +4,7 @@
 #include <time.h>
 
 #include <esp_attr.h>
+#include <esp_sntp.h>
 
 #include "config.h"
 
@@ -19,8 +20,6 @@ constexpr time_t MIN_VALID_UNIX_TIME = 1577836800; // 2020-01-01 UTC
 
 constexpr uint8_t TIME_ZONE_CACHE_SIZE = 2;
 
-// RTC-retained memory survives resets and deep sleep while the ESP32 remains
-// powered, but is lost when the ESP32 is completely powered down.
 RTC_DATA_ATTR int64_t rtcLastKnownUnixSeconds = 0;
 
 ExtendedZoneProcessorCache<TIME_ZONE_CACHE_SIZE> zoneProcessorCache;
@@ -34,6 +33,7 @@ ExtendedZoneManager zoneManager(
 bool Timekeeper::begin(const char* timeZone) {
     _valid = false;
     _ntpStarted = false;
+    _ntpSynced = false;
     _unixSeconds = 0;
     _previousMinute = -1;
     _previousSecond = -1;
@@ -102,7 +102,6 @@ void Timekeeper::saveRtcTime() {
         return;
     }
 
-    // This writes only to RTC-retained RAM, not flash/NVS.
     rtcLastKnownUnixSeconds = _unixSeconds;
 }
 
@@ -112,6 +111,7 @@ void Timekeeper::startNtp() {
     }
 
     _ntpStarted = true;
+    _ntpSynced = false;
 
     Serial.println("Starting native SNTP...");
 
@@ -130,6 +130,11 @@ void Timekeeper::update() {
         return;
     }
 
+    if (_ntpStarted &&
+        sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+        _ntpSynced = true;
+    }
+
     time_t now;
     time(&now);
 
@@ -142,8 +147,6 @@ void Timekeeper::update() {
 
     _unixSeconds = static_cast<int64_t>(now);
 
-    // Keep a copy in RTC-retained RAM. This is not persistent flash storage
-    // and is therefore not subject to NVS write endurance.
     if (_unixSeconds / 60 != rtcLastKnownUnixSeconds / 60) {
         saveRtcTime();
     }
@@ -175,6 +178,7 @@ void Timekeeper::update() {
 
 bool Timekeeper::isValid() const { return _valid; }
 bool Timekeeper::ntpStarted() const { return _ntpStarted; }
+bool Timekeeper::ntpSynced() const { return _ntpSynced; }
 int Timekeeper::year() const { return _year; }
 int Timekeeper::month() const { return _month; }
 int Timekeeper::day() const { return _day; }
