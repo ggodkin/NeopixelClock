@@ -1,6 +1,7 @@
 #include "timekeeper.h"
 
 #include <Arduino.h>
+#include <Preferences.h>
 #include <time.h>
 
 #include <esp_attr.h>
@@ -15,17 +16,17 @@ constexpr const char* NTP_SERVER_1 = "pool.ntp.org";
 constexpr const char* NTP_SERVER_2 = "time.nist.gov";
 constexpr const char* NTP_SERVER_3 = "time.google.com";
 
-// Treat obviously uninitialized Unix time as invalid. The ESP32 system clock
-// itself remains the source of time between NTP synchronizations.
-constexpr time_t MIN_VALID_UNIX_TIME = 1577836800; // 2020-01-01 00:00:00 UTC
+constexpr time_t MIN_VALID_UNIX_TIME = 1577836800; // 2020-01-01 UTC
+
+constexpr char NVS_NAMESPACE[] = "timekeeper";
+constexpr char NVS_KEY_UNIX[] = "lastUnix";
 
 constexpr uint8_t TIME_ZONE_CACHE_SIZE = 2;
 
-// RTC_DATA_ATTR places this value in ESP32 RTC slow memory. It survives a
-// software reset and deep-sleep wake, but is lost when the RTC domain itself
-// loses power. During the normal battery-backed outage the system clock keeps
-// running, so this is primarily a warm-reset recovery mechanism.
 RTC_DATA_ATTR int64_t rtcLastKnownUnixSeconds = 0;
+
+Preferences preferences;
+bool preferencesOpen = false;
 
 ExtendedZoneProcessorCache<TIME_ZONE_CACHE_SIZE> zoneProcessorCache;
 ExtendedZoneManager zoneManager(
@@ -58,9 +59,7 @@ bool Timekeeper::begin(const char* timeZone) {
         Serial.print("Timekeeper: invalid time zone '");
         Serial.print(timeZone);
         Serial.println("', falling back to compiled-in default");
-
         _timeZone = zoneManager.createForZoneName(TIME_ZONE);
-
         if (_timeZone.isError()) {
             Serial.println("Timekeeper: compiled-in time zone is invalid");
             return false;
@@ -71,32 +70,85 @@ bool Timekeeper::begin(const char* timeZone) {
     _timeZone.printTo(Serial);
     Serial.println();
 
-    // First use any system time that may already be available. This is the
-    // normal path after a warm reset while the ESP32 RTC clock is running.
     update();
 
     if (!_valid) {
-        // If the system clock was reset to an invalid value, recover the last
-        // valid Unix time retained in RTC memory. settimeofday() seeds the
-        // ESP32 system clock, after which update() handles normal timekeeping.
         restoreRtcTime();
+        update();
+    }
+
+    if (!_valid) {
+        restoreNvsTime();
         update();
     }
 
     if (_valid) {
         Serial.printf(
             "Local time available: %04d-%02d-%02d %02d:%02d:%02d\n",
-            _year,
-            _month,
-            _day,
-            _hour,
-            _minute,
-            _second);
+            _year, _month, _day, _hour, _minute, _second);
     } else {
         Serial.println("No valid local time available yet");
     }
 
     return true;
+}
+
+void Timekeeper::restoreRtcTime() {
+    if (rtcLastKnownUnixSeconds < MIN_VALID_UNIX_TIME) {
+        return;
+    }
+
+    timeval tv{};
+    tv.tv_sec = static_cast<time_t>(rtcLastKnownUnixSeconds);
+    tv.tv_usec = 0;
+    settimeofday(&tv, nullptr);
+
+    Serial.print("Restored RTC time: ");
+    Serial.println(rtcLastKnownUnixSeconds);
+}
+
+void Timekeeper::restoreNvsTime() {
+    if (!preferencesOpen) {
+        preferencesOpen = preferences.begin(NVS_NAMESPACE, false);
+    }
+
+    if (!preferencesOpen) {
+        Serial.println("Timekeeper: NVS unavailable; cannot restore saved time");
+        return;
+    }
+
+    const int64_t saved = preferences.getLong64(NVS_KEY_UNIX, 0);
+
+    if (saved < MIN_VALID_UNIX_TIME) {
+        Serial.println("Timekeeper: no valid saved time in NVS");
+        return;
+    }
+
+    timeval tv{};
+    tv.tv_sec = static_cast<time_t>(saved);
+    tv.tv_usec = 0;
+    settimeofday(&tv, nullptr);
+
+    rtcLastKnownUnixSeconds = saved;
+
+    Serial.print("Restored time from NVS: ");
+    Serial.println(saved);
+}
+
+void Timekeeper::saveRtcTime() {
+    if (!_valid) {
+        return;
+    }
+
+    rtcLastKnownUnixSeconds = _unixSeconds;
+
+    if (!preferencesOpen) {
+        preferencesOpen = preferences.begin(NVS_NAMESPACE, false);
+    }
+
+    if (preferencesOpen) {
+        preferences.putLong64(NVS_KEY_UNIX, _unixSeconds);
+    }
 }
 
 void Timekeeper::startNtp() {
@@ -108,8 +160,6 @@ void Timekeeper::startNtp() {
 
     Serial.println("Starting native SNTP...");
 
-    // SNTP supplies UTC epoch seconds. AceTime performs the local-time
-    // conversion below, so no ESP32 libc TZ configuration is required.
     configTime(
         0,
         0,
@@ -137,57 +187,35 @@ void Timekeeper::update() {
 
     _unixSeconds = static_cast<int64_t>(now);
 
-    // Keep a warm-reset recovery point. Saving once per minute is sufficient
-    // because the system clock itself remains the authoritative running clock.
+    // Save the last-known time once per minute. This provides a fallback for
+    // a later boot if RTC-retained memory has been lost.
     if (_unixSeconds / 60 != rtcLastKnownUnixSeconds / 60) {
         saveRtcTime();
     }
 
-    // Convert the UTC epoch supplied by SNTP using the configured AceTime
-    // timezone. This applies the correct DST rules for the selected IANA zone.
     ZonedDateTime localTime = ZonedDateTime::forUnixSeconds64(
-        _unixSeconds,
-        _timeZone);
+        _unixSeconds, _timeZone);
 
-    if (!localTime.isError()) {
-        _year = localTime.year();
-        _month = localTime.month();
-        _day = localTime.day();
-
-        _hour = localTime.hour();
-        _minute = localTime.minute();
-        _second = localTime.second();
-
-        _minuteChanged = (_minute != _previousMinute);
-        _secondChanged = (_unixSeconds != _previousSecond);
-
-        _previousMinute = _minute;
-        _previousSecond = _unixSeconds;
-
-        _valid = true;
-    } else {
+    if (localTime.isError()) {
         _valid = false;
         _minuteChanged = false;
         _secondChanged = false;
-    }
-}
-
-void Timekeeper::restoreRtcTime() {
-    if (rtcLastKnownUnixSeconds < MIN_VALID_UNIX_TIME) {
         return;
     }
 
-    timeval tv{};
-    tv.tv_sec = static_cast<time_t>(rtcLastKnownUnixSeconds);
-    tv.tv_usec = 0;
-    settimeofday(&tv, nullptr);
+    _year = localTime.year();
+    _month = localTime.month();
+    _day = localTime.day();
+    _hour = localTime.hour();
+    _minute = localTime.minute();
+    _second = localTime.second();
 
-    Serial.print("Restored RTC time: ");
-    Serial.println(rtcLastKnownUnixSeconds);
-}
+    _minuteChanged = (_minute != _previousMinute);
+    _secondChanged = (_unixSeconds != _previousSecond);
 
-void Timekeeper::saveRtcTime() {
-    rtcLastKnownUnixSeconds = _unixSeconds;
+    _previousMinute = _minute;
+    _previousSecond = _unixSeconds;
+    _valid = true;
 }
 
 bool Timekeeper::isValid() const { return _valid; }
