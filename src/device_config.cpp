@@ -22,15 +22,11 @@ constexpr const char* KEY_TIME_ZONE = "time_zone";
 Preferences preferences;
 
 void copyString(char* destination, size_t destinationSize, const char* source) {
-    if (destinationSize == 0) {
-        return;
-    }
-
+    if (destinationSize == 0) return;
     if (source == nullptr) {
         destination[0] = '\0';
         return;
     }
-
     strncpy(destination, source, destinationSize - 1);
     destination[destinationSize - 1] = '\0';
 }
@@ -38,8 +34,7 @@ void copyString(char* destination, size_t destinationSize, const char* source) {
 } // namespace
 
 bool DeviceConfig::begin() {
-    // Start with the compiled-in defaults. Individual NVS keys below can
-    // override these independently.
+    // Start with compiled-in defaults. NVS values override these individually.
     copyString(_wifiSsid, sizeof(_wifiSsid), WIFI_SSID);
     copyString(_wifiPassword, sizeof(_wifiPassword), WIFI_PASSWORD);
     copyString(_mqttServer, sizeof(_mqttServer), MQTT_SERVER);
@@ -50,47 +45,42 @@ bool DeviceConfig::begin() {
 
     _loadedFromNvs = false;
 
-    if (!preferences.begin(NVS_NAMESPACE, true)) {
+    // Open read/write so Preferences can create the namespace if it does not
+    // exist yet. This does not write any configuration values here; writes
+    // happen only in save().
+    if (!preferences.begin(NVS_NAMESPACE, false)) {
         Serial.println("DeviceConfig: NVS unavailable, using defaults");
         Serial.print("DeviceConfig: timezone = ");
         Serial.println(_timeZone);
         return false;
     }
 
-    // Load each setting independently. In particular, the timezone must not
-    // depend on every network setting being present in NVS.
     bool loadedAny = false;
 
     if (preferences.isKey(KEY_WIFI_SSID)) {
         preferences.getString(KEY_WIFI_SSID, _wifiSsid, sizeof(_wifiSsid));
         loadedAny = true;
     }
-
     if (preferences.isKey(KEY_WIFI_PASSWORD)) {
         preferences.getString(KEY_WIFI_PASSWORD, _wifiPassword, sizeof(_wifiPassword));
         loadedAny = true;
     }
-
     if (preferences.isKey(KEY_MQTT_SERVER)) {
         preferences.getString(KEY_MQTT_SERVER, _mqttServer, sizeof(_mqttServer));
         loadedAny = true;
     }
-
     if (preferences.isKey(KEY_MQTT_PORT)) {
         _mqttPort = preferences.getUShort(KEY_MQTT_PORT, MQTT_PORT);
         loadedAny = true;
     }
-
     if (preferences.isKey(KEY_MQTT_USERNAME)) {
         preferences.getString(KEY_MQTT_USERNAME, _mqttUsername, sizeof(_mqttUsername));
         loadedAny = true;
     }
-
     if (preferences.isKey(KEY_MQTT_PASSWORD)) {
         preferences.getString(KEY_MQTT_PASSWORD, _mqttPassword, sizeof(_mqttPassword));
         loadedAny = true;
     }
-
     if (preferences.isKey(KEY_TIME_ZONE)) {
         preferences.getString(KEY_TIME_ZONE, _timeZone, sizeof(_timeZone));
         loadedAny = true;
@@ -101,9 +91,9 @@ bool DeviceConfig::begin() {
     _loadedFromNvs = loadedAny;
 
     if (_loadedFromNvs) {
-        Serial.println("DeviceConfig: loaded from NVS");
+        Serial.println("DeviceConfig: loaded stored settings from NVS");
     } else {
-        Serial.println("DeviceConfig: using compiled-in defaults");
+        Serial.println("DeviceConfig: no stored settings, using compiled-in defaults");
     }
 
     Serial.print("DeviceConfig: timezone = ");
@@ -121,12 +111,8 @@ bool DeviceConfig::save(
     const char* mqttPassword,
     const char* timeZone
 ) {
-    if (wifiSsid == nullptr ||
-        wifiPassword == nullptr ||
-        mqttServer == nullptr ||
-        mqttUsername == nullptr ||
-        mqttPassword == nullptr ||
-        timeZone == nullptr ||
+    if (wifiSsid == nullptr || wifiPassword == nullptr || mqttServer == nullptr ||
+        mqttUsername == nullptr || mqttPassword == nullptr || timeZone == nullptr ||
         mqttPort == 0) {
         return false;
     }
