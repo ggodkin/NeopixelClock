@@ -53,6 +53,19 @@ constexpr int GARAGE_Y = 0;
 constexpr int GARAGE_WIDTH = 3;
 constexpr int GARAGE_HEIGHT = 3;
 
+// -----------------------------------------------------------------------------
+// Network status indicators
+// -----------------------------------------------------------------------------
+// Rightmost column, bottom two LEDs:
+//   y=6: WiFi status
+//   y=7: NTP status
+// Green = active/connected, blue = not yet active.
+// -----------------------------------------------------------------------------
+
+constexpr int STATUS_X = 31;
+constexpr int WIFI_STATUS_Y = 6;
+constexpr int NTP_STATUS_Y = 7;
+
 } // namespace
 
 // -----------------------------------------------------------------------------
@@ -197,6 +210,19 @@ void Display::showGarageClosed(
 }
 
 // -----------------------------------------------------------------------------
+// Network status
+// -----------------------------------------------------------------------------
+
+void Display::showNetworkStatus(
+    bool wifiConnected,
+    bool ntpSynced
+) {
+    _wifiConnected = wifiConnected;
+    _ntpSynced = ntpSynced;
+    show();
+}
+
+// -----------------------------------------------------------------------------
 // Message
 // -----------------------------------------------------------------------------
 
@@ -227,6 +253,18 @@ void Display::clear() {
 // -----------------------------------------------------------------------------
 
 void Display::show() {
+
+    matrix.drawPixel(
+        STATUS_X,
+        WIFI_STATUS_Y,
+        _wifiConnected ? colors[1] : colors[3]
+    );
+
+    matrix.drawPixel(
+        STATUS_X,
+        NTP_STATUS_Y,
+        _ntpSynced ? colors[1] : colors[3]
+    );
 
     matrix.show();
 }
