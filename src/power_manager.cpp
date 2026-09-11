@@ -9,7 +9,11 @@ namespace {
 constexpr float R1 = 15000.0f;
 constexpr float R2 = 22000.0f;
 
-constexpr float DIVIDER_RATIO = (R1 + R2) / R2;
+// The nominal resistor ratio is 1.6818, but the actual measured USB rail
+// and divider output give a ratio of approximately 1.775. Use the measured
+// ratio for the reported USB voltage while keeping the physical resistor
+// values documented above.
+constexpr float DIVIDER_RATIO = 1.775f;
 constexpr float ADC_REFERENCE_VOLTAGE = 3.3f;
 
 constexpr uint8_t ADC_SAMPLES = 16;
