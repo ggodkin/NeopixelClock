@@ -6,7 +6,7 @@
 
 class Timekeeper {
 public:
-    // Configure the timezone and use any already-available system time.
+    // Configure the timezone and restore/use any locally available time.
     // Does not wait for NTP.
     bool begin(const char* timeZone);
 
@@ -33,6 +33,9 @@ public:
     bool secondChanged() const;
 
 private:
+    void restoreRtcTime();
+    void saveRtcTime();
+
     bool _valid = false;
     bool _ntpStarted = false;
 
