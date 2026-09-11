@@ -33,6 +33,36 @@ String htmlEscape(const String& value) {
     return result;
 }
 
+struct TimeZoneOption {
+    const char* name;
+    const char* label;
+};
+
+// Keep the configuration list limited to practical North American zones plus
+// UTC. The stored value is always the canonical IANA name from this list.
+constexpr TimeZoneOption TIME_ZONE_OPTIONS[] = {
+    {"America/Adak", "Alaska - Adak"},
+    {"America/Anchorage", "Alaska - Anchorage"},
+    {"Pacific/Honolulu", "Hawaii - Honolulu"},
+    {"America/Los_Angeles", "Pacific - Los Angeles"},
+    {"America/Phoenix", "Mountain - Phoenix (no DST)"},
+    {"America/Denver", "Mountain - Denver"},
+    {"America/Chicago", "Central - Chicago"},
+    {"America/New_York", "Eastern - New York"},
+    {"America/Toronto", "Eastern - Toronto"},
+    {"America/Vancouver", "Pacific - Vancouver"},
+    {"UTC", "UTC"}
+};
+
+bool isKnownTimeZone(const String& value) {
+    for (const auto& option : TIME_ZONE_OPTIONS) {
+        if (value == option.name) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 bool ConfigPortal::begin(DeviceConfig& deviceConfig) {
@@ -129,11 +159,31 @@ void ConfigPortal::handleRoot() {
 
     html += "<hr>";
 
-    html += "<p><label>Time Zone (IANA)<br>";
-    html += "<input type=\"text\" name=\"time_zone\" maxlength=\"127\" required value=\"";
-    html += htmlEscape(String(_deviceConfig->timeZone()));
-    html += "\"></label></p>";
-    html += "<p>Examples: America/Denver, America/New_York, America/Los_Angeles, UTC</p>";
+    html += "<p><label>Time Zone<br><select name=\"time_zone\" required>";
+
+    const String currentTimeZone = String(_deviceConfig->timeZone());
+    for (const auto& option : TIME_ZONE_OPTIONS) {
+        html += "<option value=\"";
+        html += option.name;
+        html += "\"";
+        if (currentTimeZone == option.name) {
+            html += " selected";
+        }
+        html += ">";
+        html += option.label;
+        html += " (";
+        html += option.name;
+        html += ")</option>";
+    }
+
+    html += "</select></label></p>";
+
+    // If an older configuration contains an invalid/free-form timezone, the
+    // browser cannot select it. Denver is the compiled-in fallback and will
+    // therefore be selected when the stored value is not in the list.
+    if (!isKnownTimeZone(currentTimeZone)) {
+        html += "<p>Stored timezone is not in the supported list. Please select a timezone.</p>";
+    }
 
     html += "<p><button type=\"submit\">Save Configuration</button></p>";
     html += "</form></body></html>";
@@ -178,7 +228,7 @@ void ConfigPortal::handleSave() {
         mqttServer.length() == 0 ||
         mqttPort < 1 ||
         mqttPort > 65535 ||
-        timeZone.length() == 0) {
+        !isKnownTimeZone(timeZone)) {
         server.send(400, "text/plain", "Invalid configuration");
         return;
     }
