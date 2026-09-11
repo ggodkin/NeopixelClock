@@ -6,10 +6,18 @@
 
 class Timekeeper {
 public:
+    // Configure the timezone and use any already-available system time.
+    // Does not wait for NTP.
     bool begin(const char* timeZone);
+
+    // Start native SNTP once. Returns immediately.
+    void startNtp();
+
+    // Update the displayed time from the ESP32 system clock.
     void update();
 
     bool isValid() const;
+    bool ntpStarted() const;
 
     int year() const;
     int month() const;
@@ -26,6 +34,7 @@ public:
 
 private:
     bool _valid = false;
+    bool _ntpStarted = false;
 
     int64_t _unixSeconds = 0;
 
