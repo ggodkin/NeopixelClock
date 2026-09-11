@@ -238,13 +238,29 @@ void setup() {
     ssid = deviceConfig.wifiSsid();
     password = deviceConfig.wifiPassword();
 
-    // When booting from battery/main-power outage, do not start WiFi, NTP,
-    // MQTT, or OTA. The outage state machine will shut the network down after
-    // the initial display interval and handle the display duty cycle.
+    // Configure the timezone and immediately use any valid time already held
+    // by the ESP32 system clock. This never waits for NTP.
+    if (!timekeeper.begin(deviceConfig.timeZone())) {
+        debugln("Timekeeper initialization failed");
+    }
+
+    // Draw the clock as soon as possible. If the system clock was already
+    // valid (for example after a reset), the display is independent of the
+    // network startup below.
+    timekeeper.update();
+    redrawDisplay();
+
+    // A boot directly into outage mode must not start networking. The system
+    // clock is still updated by the main loop while the outage display cycles.
     if (outageMode) {
         debugln("Skipping WiFi/NTP/MQTT/OTA startup during outage");
         return;
     }
+
+    // Start SNTP asynchronously. This only initiates the SNTP client; it does
+    // not wait for synchronization. The clock continues using the ESP32 system
+    // clock and will automatically pick up the NTP correction when available.
+    timekeeper.startNtp();
 
     debugln("Before WiFi.mode()");
     WiFi.mode(WIFI_STA);
@@ -253,40 +269,9 @@ void setup() {
     WiFi.begin(ssid, password);
     debugln("After WiFi.begin()");
 
-    uint32_t wifiStart = millis();
-
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(250);
-        debug(".");
-
-        if (millis() - wifiStart >= 15000) {
-            debugln();
-            debugln("WiFi connection timeout");
-
-            matrix->fillScreen(0);
-            matrix->setCursor(0, 0);
-            matrix->setTextColor(colors[2]);
-            matrix->print("noWIFI");
-            matrix->show();
-
-            delay(2000);
-            ESP.restart();
-        }
-    }
-
-    debugln();
-    debug("WiFi connected. IP: ");
-    debugln(WiFi.localIP());
-
-    matrix->fillScreen(0);
-    matrix->setCursor(0, 0);
-    matrix->setTextColor(colors[1]);
-    matrix->print("WiFiOk");
-    matrix->show();
-    delay(1000);
-
-    timekeeper.begin(deviceConfig.timeZone());
-    redrawDisplay();
+    // Do not block startup waiting for WiFi. The display and clock continue
+    // running while the network connects in the background.
+    lastMqttReconnectAttempt = millis() - MQTT_RECONNECT_INTERVAL_MS;
 
     ArduinoOTA.begin();
     debugln("OTA ready");
@@ -329,6 +314,9 @@ void loop() {
         redrawDisplay();
     }
 
+    // Keep the clock running independently of WiFi, MQTT, and OTA.
+    timekeeper.update();
+
     if (outageMode) {
         uint32_t nowMillis = millis();
 
@@ -369,12 +357,6 @@ void loop() {
 
     if (otaMode && !outageNetworkOff && WiFi.status() == WL_CONNECTED) {
         ArduinoOTA.handle();
-    }
-
-    // Timekeeper is not initialized when the unit boots directly into outage
-    // mode, so do not call update() until it has been initialized.
-    if (!outageMode || timekeeper.isValid()) {
-        timekeeper.update();
     }
 
     if (!timekeeper.isValid()) {
