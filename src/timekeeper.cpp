@@ -1,7 +1,6 @@
 #include "timekeeper.h"
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <time.h>
 
 #include <esp_attr.h>
@@ -18,15 +17,11 @@ constexpr const char* NTP_SERVER_3 = "time.google.com";
 
 constexpr time_t MIN_VALID_UNIX_TIME = 1577836800; // 2020-01-01 UTC
 
-constexpr char NVS_NAMESPACE[] = "timekeeper";
-constexpr char NVS_KEY_UNIX[] = "lastUnix";
-
 constexpr uint8_t TIME_ZONE_CACHE_SIZE = 2;
 
+// RTC-retained memory survives resets and deep sleep while the ESP32 remains
+// powered, but is lost when the ESP32 is completely powered down.
 RTC_DATA_ATTR int64_t rtcLastKnownUnixSeconds = 0;
-
-Preferences preferences;
-bool preferencesOpen = false;
 
 ExtendedZoneProcessorCache<TIME_ZONE_CACHE_SIZE> zoneProcessorCache;
 ExtendedZoneManager zoneManager(
@@ -77,11 +72,6 @@ bool Timekeeper::begin(const char* timeZone) {
         update();
     }
 
-    if (!_valid) {
-        restoreNvsTime();
-        update();
-    }
-
     if (_valid) {
         Serial.printf(
             "Local time available: %04d-%02d-%02d %02d:%02d:%02d\n",
@@ -107,48 +97,13 @@ void Timekeeper::restoreRtcTime() {
     Serial.println(rtcLastKnownUnixSeconds);
 }
 
-void Timekeeper::restoreNvsTime() {
-    if (!preferencesOpen) {
-        preferencesOpen = preferences.begin(NVS_NAMESPACE, false);
-    }
-
-    if (!preferencesOpen) {
-        Serial.println("Timekeeper: NVS unavailable; cannot restore saved time");
-        return;
-    }
-
-    const int64_t saved = preferences.getLong64(NVS_KEY_UNIX, 0);
-
-    if (saved < MIN_VALID_UNIX_TIME) {
-        Serial.println("Timekeeper: no valid saved time in NVS");
-        return;
-    }
-
-    timeval tv{};
-    tv.tv_sec = static_cast<time_t>(saved);
-    tv.tv_usec = 0;
-    settimeofday(&tv, nullptr);
-
-    rtcLastKnownUnixSeconds = saved;
-
-    Serial.print("Restored time from NVS: ");
-    Serial.println(saved);
-}
-
 void Timekeeper::saveRtcTime() {
     if (!_valid) {
         return;
     }
 
+    // This writes only to RTC-retained RAM, not flash/NVS.
     rtcLastKnownUnixSeconds = _unixSeconds;
-
-    if (!preferencesOpen) {
-        preferencesOpen = preferences.begin(NVS_NAMESPACE, false);
-    }
-
-    if (preferencesOpen) {
-        preferences.putLong64(NVS_KEY_UNIX, _unixSeconds);
-    }
 }
 
 void Timekeeper::startNtp() {
@@ -187,8 +142,8 @@ void Timekeeper::update() {
 
     _unixSeconds = static_cast<int64_t>(now);
 
-    // Save the last-known time once per minute. This provides a fallback for
-    // a later boot if RTC-retained memory has been lost.
+    // Keep a copy in RTC-retained RAM. This is not persistent flash storage
+    // and is therefore not subject to NVS write endurance.
     if (_unixSeconds / 60 != rtcLastKnownUnixSeconds / 60) {
         saveRtcTime();
     }
