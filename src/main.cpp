@@ -72,9 +72,15 @@ bool otaMode = false;
 
 constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 5000;
 uint32_t lastMqttReconnectAttempt = 0;
+bool mqttConnectionAttempted = false;
+bool mqttConnectionFailed = false;
 
-bool lastDisplayedWifiStatus = false;
-bool lastDisplayedNtpStatus = false;
+constexpr uint32_t NTP_STATUS_TIMEOUT_MS = 30000;
+uint32_t ntpStartedAt = 0;
+
+NetworkStatus lastDisplayedWifiStatus = NetworkStatus::ATTEMPTING;
+NetworkStatus lastDisplayedNtpStatus = NetworkStatus::ATTEMPTING;
+NetworkStatus lastDisplayedMqttStatus = NetworkStatus::ATTEMPTING;
 bool networkStatusDisplayInitialized = false;
 
 constexpr size_t MSG_BUFFER_SIZE = 50;
@@ -136,6 +142,7 @@ void reconnect() {
     }
 
     lastMqttReconnectAttempt = nowMillis;
+    mqttConnectionAttempted = true;
     debug("Attempting MQTT connection...");
 
     String clientId = "ESP32Client-";
@@ -145,10 +152,12 @@ void reconnect() {
             clientId.c_str(),
             deviceConfig.mqttUsername(),
             deviceConfig.mqttPassword())) {
+        mqttConnectionFailed = false;
         debugln("connected");
         client.publish("outTopic", "hello world");
         client.subscribe("cmnd/NeopixelClock/GarageDoorClosed");
     } else {
+        mqttConnectionFailed = true;
         debug("failed, rc=");
         debugln(client.state());
     }
@@ -165,16 +174,50 @@ void redrawDisplay() {
 }
 
 void updateNetworkStatusDisplay() {
-    const bool wifiConnected = WiFi.status() == WL_CONNECTED;
-    const bool ntpSynced = timekeeper.ntpSynced();
+    const wl_status_t wifiState = WiFi.status();
+
+    NetworkStatus wifiStatus;
+    if (wifiState == WL_CONNECTED) {
+        wifiStatus = NetworkStatus::CONNECTED;
+    } else if (wifiState == WL_CONNECT_FAILED ||
+               wifiState == WL_NO_SSID_AVAIL ||
+               wifiState == WL_CONNECTION_LOST) {
+        wifiStatus = NetworkStatus::FAILED;
+    } else {
+        wifiStatus = NetworkStatus::ATTEMPTING;
+    }
+
+    NetworkStatus ntpStatus;
+    if (timekeeper.ntpSynced()) {
+        ntpStatus = NetworkStatus::CONNECTED;
+    } else if (timekeeper.ntpStarted() &&
+               (millis() - ntpStartedAt >= NTP_STATUS_TIMEOUT_MS ||
+                wifiState == WL_CONNECT_FAILED ||
+                wifiState == WL_NO_SSID_AVAIL ||
+                wifiState == WL_CONNECTION_LOST)) {
+        ntpStatus = NetworkStatus::FAILED;
+    } else {
+        ntpStatus = NetworkStatus::ATTEMPTING;
+    }
+
+    NetworkStatus mqttStatus;
+    if (client.connected()) {
+        mqttStatus = NetworkStatus::CONNECTED;
+    } else if (mqttConnectionFailed) {
+        mqttStatus = NetworkStatus::FAILED;
+    } else {
+        mqttStatus = NetworkStatus::ATTEMPTING;
+    }
 
     if (!networkStatusDisplayInitialized ||
-        wifiConnected != lastDisplayedWifiStatus ||
-        ntpSynced != lastDisplayedNtpStatus) {
-        lastDisplayedWifiStatus = wifiConnected;
-        lastDisplayedNtpStatus = ntpSynced;
+        wifiStatus != lastDisplayedWifiStatus ||
+        ntpStatus != lastDisplayedNtpStatus ||
+        mqttStatus != lastDisplayedMqttStatus) {
+        lastDisplayedWifiStatus = wifiStatus;
+        lastDisplayedNtpStatus = ntpStatus;
+        lastDisplayedMqttStatus = mqttStatus;
         networkStatusDisplayInitialized = true;
-        display.showNetworkStatus(wifiConnected, ntpSynced);
+        display.showNetworkStatus(wifiStatus, ntpStatus, mqttStatus);
     }
 }
 
@@ -201,9 +244,6 @@ void setup() {
     Serial.begin(115200);
     delay(100);
 
-    // Disable the ESP32 brownout detector. This is intentional for the
-    // battery/outage testing of this project; undervoltage protection is no
-    // longer provided by the ESP32 brownout reset mechanism.
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
     debugln();
@@ -267,6 +307,7 @@ void setup() {
     }
 
     timekeeper.startNtp();
+    ntpStartedAt = millis();
 
     debugln("Before WiFi.mode()");
     WiFi.mode(WIFI_STA);
@@ -276,6 +317,8 @@ void setup() {
     debugln("After WiFi.begin()");
 
     lastMqttReconnectAttempt = millis() - MQTT_RECONNECT_INTERVAL_MS;
+    mqttConnectionAttempted = false;
+    mqttConnectionFailed = false;
 
     ArduinoOTA.begin();
     debugln("OTA ready");
@@ -316,6 +359,9 @@ void loop() {
         WiFi.mode(WIFI_STA);
         WiFi.begin(ssid, password);
         lastMqttReconnectAttempt = millis() - MQTT_RECONNECT_INTERVAL_MS;
+        mqttConnectionAttempted = false;
+        mqttConnectionFailed = false;
+        ntpStartedAt = millis();
         redrawDisplay();
     }
 
@@ -359,6 +405,8 @@ void loop() {
         }
         client.loop();
     }
+
+    updateNetworkStatusDisplay();
 
     if (otaMode && !outageNetworkOff && WiFi.status() == WL_CONNECTED) {
         ArduinoOTA.handle();
