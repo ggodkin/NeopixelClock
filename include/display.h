@@ -18,4 +18,6 @@ private:
     void show();
 
     bool _cursorOn = true;
+    bool _wifiConnected = false;
+    bool _ntpSynced = false;
 };
