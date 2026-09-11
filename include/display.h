@@ -9,6 +9,7 @@ public:
     void showTime(int hours, int minutes);
     void updateColon(bool on);
     void showGarageClosed(bool closed);
+    void showNetworkStatus(bool wifiConnected, bool ntpSynced);
     void showMessage(const char* message);
 
     void clear();
