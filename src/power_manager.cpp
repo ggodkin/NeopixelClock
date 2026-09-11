@@ -6,7 +6,7 @@
 
 namespace {
 
-constexpr float R1 = 12000.0f;
+constexpr float R1 = 15000.0f;
 constexpr float R2 = 22000.0f;
 
 constexpr float DIVIDER_RATIO = (R1 + R2) / R2;
@@ -27,7 +27,7 @@ void PowerManager::begin() {
 
     Serial.println("PowerManager initialized");
     Serial.println("USB power sensing on GPIO34");
-    Serial.println("Divider: 12k / 22k");
+    Serial.println("Divider: 15k / 22k");
 
     // Establish the initial ADC reading and state.
     uint32_t total = 0;
