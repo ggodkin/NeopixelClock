@@ -151,6 +151,10 @@ void reconnect() {
 
 void redrawDisplay() {
     if (!timekeeper.isValid()) {
+        // Keep the display useful while the clock is waiting for its first
+        // valid time after a complete power loss. Do not leave the matrix
+        // blank simply because SNTP has not synchronized yet.
+        display.showMessage("Setup");
         return;
     }
 
@@ -246,7 +250,8 @@ void setup() {
 
     // Draw the clock as soon as possible. If the system clock was already
     // valid (for example after a reset), the display is independent of the
-    // network startup below.
+    // network startup below. Otherwise show the startup status message until
+    // SNTP supplies the first valid time.
     timekeeper.update();
     redrawDisplay();
 
