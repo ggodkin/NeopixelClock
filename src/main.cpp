@@ -23,6 +23,9 @@
 
 #include <PubSubClient.h>
 
+#include <soc/soc.h>
+#include <soc/rtc_cntl_reg.h>
+
 #include "config.h"
 #include "secrets.h"
 #include "timekeeper.h"
@@ -177,6 +180,11 @@ void updateOtaMode() {
 void setup() {
     Serial.begin(115200);
     delay(100);
+
+    // Disable the ESP32 brownout detector. This is intentional for the
+    // battery/outage testing of this project; undervoltage protection is no
+    // longer provided by the ESP32 brownout reset mechanism.
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
     debugln();
     debugln("NeopixelClock ESP32 starting...");
