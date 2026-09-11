@@ -18,6 +18,7 @@ public:
 
     bool isValid() const;
     bool ntpStarted() const;
+    bool ntpSynced() const;
 
     int year() const;
     int month() const;
@@ -38,6 +39,7 @@ private:
 
     bool _valid = false;
     bool _ntpStarted = false;
+    bool _ntpSynced = false;
 
     int64_t _unixSeconds = 0;
 
