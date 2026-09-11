@@ -73,6 +73,10 @@ bool otaMode = false;
 constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 5000;
 uint32_t lastMqttReconnectAttempt = 0;
 
+bool lastDisplayedWifiStatus = false;
+bool lastDisplayedNtpStatus = false;
+bool networkStatusDisplayInitialized = false;
+
 constexpr size_t MSG_BUFFER_SIZE = 50;
 char msg[MSG_BUFFER_SIZE];
 char msgOut[MSG_BUFFER_SIZE];
@@ -101,6 +105,7 @@ const uint32_t colors[] = {
 void callback(char* topic, byte* payload, unsigned int length);
 void reconnect();
 void updateOtaMode();
+void updateNetworkStatusDisplay();
 void displayTime(int dispHours, int dispMinutes);
 void displayGarageClosed(bool closedInd);
 void redrawDisplay();
@@ -151,15 +156,26 @@ void reconnect() {
 
 void redrawDisplay() {
     if (!timekeeper.isValid()) {
-        // Keep the display useful while the clock is waiting for its first
-        // valid time after a complete power loss. Do not leave the matrix
-        // blank simply because SNTP has not synchronized yet.
         display.showMessage("Setup");
         return;
     }
 
     display.showTime(timekeeper.hour(), timekeeper.minute());
     display.showGarageClosed(garageDoorClosedStatus);
+}
+
+void updateNetworkStatusDisplay() {
+    const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+    const bool ntpSynced = timekeeper.ntpSynced();
+
+    if (!networkStatusDisplayInitialized ||
+        wifiConnected != lastDisplayedWifiStatus ||
+        ntpSynced != lastDisplayedNtpStatus) {
+        lastDisplayedWifiStatus = wifiConnected;
+        lastDisplayedNtpStatus = ntpSynced;
+        networkStatusDisplayInitialized = true;
+        display.showNetworkStatus(wifiConnected, ntpSynced);
+    }
 }
 
 void updateOtaMode() {
@@ -197,9 +213,6 @@ void setup() {
 
     powerManager.begin();
 
-    // If the ESP32 boots while main power is already absent, there is no
-    // power-loss transition for PowerManager to generate. Enter outage mode
-    // immediately, but start the display timer only after display.begin().
     const bool bootingInOutage = powerManager.isOutage();
 
     if (bootingInOutage) {
@@ -212,8 +225,6 @@ void setup() {
     display.begin();
     debugln("Display setup");
 
-    // The outage ON interval must begin when the display is actually ready,
-    // not before the potentially long setup sequence.
     if (bootingInOutage) {
         outageDisplayStateSince = millis();
     }
@@ -242,29 +253,19 @@ void setup() {
     ssid = deviceConfig.wifiSsid();
     password = deviceConfig.wifiPassword();
 
-    // Configure the timezone and immediately use any valid time already held
-    // by the ESP32 system clock. This never waits for NTP.
     if (!timekeeper.begin(deviceConfig.timeZone())) {
         debugln("Timekeeper initialization failed");
     }
 
-    // Draw the clock as soon as possible. If the system clock was already
-    // valid (for example after a reset), the display is independent of the
-    // network startup below. Otherwise show the startup status message until
-    // SNTP supplies the first valid time.
     timekeeper.update();
     redrawDisplay();
 
-    // A boot directly into outage mode must not start networking. The system
-    // clock is still updated by the main loop while the outage display cycles.
     if (outageMode) {
         debugln("Skipping WiFi/NTP/MQTT/OTA startup during outage");
+        updateNetworkStatusDisplay();
         return;
     }
 
-    // Start SNTP asynchronously. This only initiates the SNTP client; it does
-    // not wait for synchronization. The clock continues using the ESP32 system
-    // clock and will automatically pick up the NTP correction when available.
     timekeeper.startNtp();
 
     debugln("Before WiFi.mode()");
@@ -274,8 +275,6 @@ void setup() {
     WiFi.begin(ssid, password);
     debugln("After WiFi.begin()");
 
-    // Do not block startup waiting for WiFi. The display and clock continue
-    // running while the network connects in the background.
     lastMqttReconnectAttempt = millis() - MQTT_RECONNECT_INTERVAL_MS;
 
     ArduinoOTA.begin();
@@ -285,6 +284,7 @@ void setup() {
     client.setCallback(callback);
 
     debugln("Setup complete");
+    updateNetworkStatusDisplay();
     updateOtaMode();
 }
 
@@ -319,8 +319,8 @@ void loop() {
         redrawDisplay();
     }
 
-    // Keep the clock running independently of WiFi, MQTT, and OTA.
     timekeeper.update();
+    updateNetworkStatusDisplay();
 
     if (outageMode) {
         uint32_t nowMillis = millis();
