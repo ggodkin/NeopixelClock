@@ -13,7 +13,9 @@ constexpr const char* NTP_SERVER_1 = "pool.ntp.org";
 constexpr const char* NTP_SERVER_2 = "time.nist.gov";
 constexpr const char* NTP_SERVER_3 = "time.google.com";
 
-constexpr uint32_t NTP_TIMEOUT_MS = 15000;
+// Treat obviously uninitialized Unix time as invalid. The ESP32 system clock
+// itself remains the source of time between NTP synchronizations.
+constexpr time_t MIN_VALID_UNIX_TIME = 1577836800; // 2020-01-01 00:00:00 UTC
 
 constexpr uint8_t TIME_ZONE_CACHE_SIZE = 2;
 
@@ -26,6 +28,12 @@ ExtendedZoneManager zoneManager(
 } // namespace
 
 bool Timekeeper::begin(const char* timeZone) {
+    _valid = false;
+    _ntpStarted = false;
+    _previousMinute = -1;
+    _previousSecond = -1;
+    _minuteChanged = false;
+    _secondChanged = false;
 
     if (timeZone == nullptr || timeZone[0] == '\0') {
         Serial.println("Timekeeper: invalid time zone");
@@ -54,6 +62,33 @@ bool Timekeeper::begin(const char* timeZone) {
     _timeZone.printTo(Serial);
     Serial.println();
 
+    // Use an already-running ESP32 system clock immediately if it contains a
+    // plausible time. NTP is started separately and never blocks the clock.
+    update();
+
+    if (_valid) {
+        Serial.printf(
+            "Existing system time: %04d-%02d-%02d %02d:%02d:%02d\n",
+            _year,
+            _month,
+            _day,
+            _hour,
+            _minute,
+            _second);
+    } else {
+        Serial.println("Existing system time is not valid yet");
+    }
+
+    return true;
+}
+
+void Timekeeper::startNtp() {
+    if (_ntpStarted) {
+        return;
+    }
+
+    _ntpStarted = true;
+
     Serial.println("Starting native SNTP...");
 
     // SNTP supplies UTC epoch seconds. AceTime performs the local-time
@@ -65,56 +100,23 @@ bool Timekeeper::begin(const char* timeZone) {
         NTP_SERVER_2,
         NTP_SERVER_3
     );
-
-    Serial.println("Waiting for NTP time...");
-
-    struct tm timeinfo;
-    uint32_t ntpStart = millis();
-    bool ntpValid = false;
-
-    while (!ntpValid && millis() - ntpStart < NTP_TIMEOUT_MS) {
-        ntpValid = getLocalTime(&timeinfo, 1000);
-
-        if (!ntpValid) {
-            Serial.print(".");
-        }
-    }
-
-    Serial.println();
-
-    if (!ntpValid) {
-        Serial.println("NTP synchronization timeout");
-        return false;
-    }
-
-    Serial.println("NTP synchronized!");
-
-    update();
-
-    if (_valid) {
-        Serial.print("Local time: ");
-        Serial.printf(
-            "%04d-%02d-%02d %02d:%02d:%02d\n",
-            _year,
-            _month,
-            _day,
-            _hour,
-            _minute,
-            _second);
-
-        ZonedExtra extra = _timeZone.getZonedExtra(_unixSeconds);
-        Serial.print("UTC offset: ");
-        extra.timeOffset().printTo(Serial);
-        Serial.println();
-    }
-
-    return _valid;
 }
 
 void Timekeeper::update() {
+    if (_timeZone.isError()) {
+        _valid = false;
+        return;
+    }
 
     time_t now;
     time(&now);
+
+    if (now < MIN_VALID_UNIX_TIME) {
+        _valid = false;
+        _minuteChanged = false;
+        _secondChanged = false;
+        return;
+    }
 
     _unixSeconds = static_cast<int64_t>(now);
 
@@ -142,10 +144,13 @@ void Timekeeper::update() {
         _valid = true;
     } else {
         _valid = false;
+        _minuteChanged = false;
+        _secondChanged = false;
     }
 }
 
 bool Timekeeper::isValid() const { return _valid; }
+bool Timekeeper::ntpStarted() const { return _ntpStarted; }
 int Timekeeper::year() const { return _year; }
 int Timekeeper::month() const { return _month; }
 int Timekeeper::day() const { return _day; }
