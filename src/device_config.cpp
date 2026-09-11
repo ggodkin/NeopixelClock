@@ -38,6 +38,8 @@ void copyString(char* destination, size_t destinationSize, const char* source) {
 } // namespace
 
 bool DeviceConfig::begin() {
+    // Start with the compiled-in defaults. Individual NVS keys below can
+    // override these independently.
     copyString(_wifiSsid, sizeof(_wifiSsid), WIFI_SSID);
     copyString(_wifiPassword, sizeof(_wifiPassword), WIFI_PASSWORD);
     copyString(_mqttServer, sizeof(_mqttServer), MQTT_SERVER);
@@ -55,30 +57,48 @@ bool DeviceConfig::begin() {
         return false;
     }
 
-    const bool hasNetworkConfiguration =
-        preferences.isKey(KEY_WIFI_SSID) &&
-        preferences.isKey(KEY_WIFI_PASSWORD) &&
-        preferences.isKey(KEY_MQTT_SERVER) &&
-        preferences.isKey(KEY_MQTT_PORT) &&
-        preferences.isKey(KEY_MQTT_USERNAME) &&
-        preferences.isKey(KEY_MQTT_PASSWORD);
+    // Load each setting independently. In particular, the timezone must not
+    // depend on every network setting being present in NVS.
+    bool loadedAny = false;
 
-    if (hasNetworkConfiguration) {
+    if (preferences.isKey(KEY_WIFI_SSID)) {
         preferences.getString(KEY_WIFI_SSID, _wifiSsid, sizeof(_wifiSsid));
+        loadedAny = true;
+    }
+
+    if (preferences.isKey(KEY_WIFI_PASSWORD)) {
         preferences.getString(KEY_WIFI_PASSWORD, _wifiPassword, sizeof(_wifiPassword));
+        loadedAny = true;
+    }
+
+    if (preferences.isKey(KEY_MQTT_SERVER)) {
         preferences.getString(KEY_MQTT_SERVER, _mqttServer, sizeof(_mqttServer));
+        loadedAny = true;
+    }
+
+    if (preferences.isKey(KEY_MQTT_PORT)) {
         _mqttPort = preferences.getUShort(KEY_MQTT_PORT, MQTT_PORT);
+        loadedAny = true;
+    }
+
+    if (preferences.isKey(KEY_MQTT_USERNAME)) {
         preferences.getString(KEY_MQTT_USERNAME, _mqttUsername, sizeof(_mqttUsername));
+        loadedAny = true;
+    }
+
+    if (preferences.isKey(KEY_MQTT_PASSWORD)) {
         preferences.getString(KEY_MQTT_PASSWORD, _mqttPassword, sizeof(_mqttPassword));
+        loadedAny = true;
+    }
 
-        if (preferences.isKey(KEY_TIME_ZONE)) {
-            preferences.getString(KEY_TIME_ZONE, _timeZone, sizeof(_timeZone));
-        }
-
-        _loadedFromNvs = true;
+    if (preferences.isKey(KEY_TIME_ZONE)) {
+        preferences.getString(KEY_TIME_ZONE, _timeZone, sizeof(_timeZone));
+        loadedAny = true;
     }
 
     preferences.end();
+
+    _loadedFromNvs = loadedAny;
 
     if (_loadedFromNvs) {
         Serial.println("DeviceConfig: loaded from NVS");
