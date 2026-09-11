@@ -34,7 +34,6 @@ public:
 
 private:
     void restoreRtcTime();
-    void restoreNvsTime();
     void saveRtcTime();
 
     bool _valid = false;
