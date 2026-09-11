@@ -8,10 +8,6 @@
 
 namespace {
 
-// -----------------------------------------------------------------------------
-// LED matrix
-// -----------------------------------------------------------------------------
-
 CRGB matrixleds[NUM_LEDS];
 
 FastLED_NeoMatrix matrix(
@@ -24,88 +20,60 @@ FastLED_NeoMatrix matrix(
     NEO_MATRIX_ZIGZAG
 );
 
-// -----------------------------------------------------------------------------
-// Display colors
-//
-// Preserve the existing colors:
-//   0 = red
-//   1 = green
-//   2 = blue
-//   3 = off
-// -----------------------------------------------------------------------------
-
+// Preserve the existing display colors and add yellow for status attempts.
 const uint32_t colors[] = {
     matrix.Color(255, 0, 0),
     matrix.Color(0, 255, 0),
     matrix.Color(0, 0, 255),
-    matrix.Color(0, 0, 0)
+    matrix.Color(0, 0, 0),
+    matrix.Color(255, 255, 0)
 };
 
 constexpr uint8_t BRIGHTNESS = 1;
 
-// -----------------------------------------------------------------------------
-// Garage indicator
-// -----------------------------------------------------------------------------
-
 constexpr int GARAGE_X = 28;
 constexpr int GARAGE_Y = 0;
-
 constexpr int GARAGE_WIDTH = 3;
 constexpr int GARAGE_HEIGHT = 3;
 
-// -----------------------------------------------------------------------------
-// Network status indicators
-// -----------------------------------------------------------------------------
-// Rightmost column, bottom two LEDs:
-//   y=6: WiFi status
-//   y=7: NTP status
-// Green = active/connected, blue = not yet active.
-// -----------------------------------------------------------------------------
-
+// Rightmost column, bottom three LEDs:
+//   y=5: WiFi
+//   y=6: NTP
+//   y=7: MQTT
 constexpr int STATUS_X = 31;
-constexpr int WIFI_STATUS_Y = 6;
-constexpr int NTP_STATUS_Y = 7;
+constexpr int WIFI_STATUS_Y = 5;
+constexpr int NTP_STATUS_Y = 6;
+constexpr int MQTT_STATUS_Y = 7;
+
+uint32_t statusColor(NetworkStatus status) {
+    switch (status) {
+        case NetworkStatus::ATTEMPTING:
+            return colors[4];
+        case NetworkStatus::FAILED:
+            return colors[0];
+        case NetworkStatus::CONNECTED:
+            return colors[2];
+    }
+
+    return colors[3];
+}
 
 } // namespace
 
-// -----------------------------------------------------------------------------
-// Begin
-// -----------------------------------------------------------------------------
-
 void Display::begin() {
-
-    FastLED.addLeds<NEOPIXEL, LED_DATA_PIN>(
-        matrixleds,
-        NUM_LEDS
-    );
-
+    FastLED.addLeds<NEOPIXEL, LED_DATA_PIN>(matrixleds, NUM_LEDS);
     matrix.begin();
-
     matrix.setTextWrap(false);
-
     matrix.setBrightness(BRIGHTNESS);
-
     matrix.setTextColor(colors[1]);
-
     matrix.print("Setup");
-
     show();
-
     delay(1000);
-
     matrix.fillScreen(0);
     show();
 }
 
-// -----------------------------------------------------------------------------
-// Show time
-// -----------------------------------------------------------------------------
-
-void Display::showTime(
-    int hours,
-    int minutes
-) {
-
+void Display::showTime(int hours, int minutes) {
     matrix.fillScreen(0);
 
     if (hours < 10) {
@@ -117,119 +85,48 @@ void Display::showTime(
     matrix.setTextColor(colors[2]);
 
     String localMinutes;
-
     if (minutes < 10) {
-        localMinutes =
-            "0" +
-            String(minutes);
+        localMinutes = "0" + String(minutes);
     } else {
-        localMinutes =
-            String(minutes);
+        localMinutes = String(minutes);
     }
 
-    matrix.print(
-        String(hours)
-    );
-
+    matrix.print(String(hours));
     matrix.setCursor(16, 0);
-
-    matrix.print(
-        localMinutes
-    );
-
+    matrix.print(localMinutes);
     show();
 }
 
-// -----------------------------------------------------------------------------
-// Colon
-// -----------------------------------------------------------------------------
-
-void Display::updateColon(
-    bool on
-) {
-
+void Display::updateColon(bool on) {
     matrix.setCursor(11, 0);
-
-    if (on) {
-        matrix.setTextColor(colors[2]);
-    } else {
-        matrix.setTextColor(colors[3]);
-    }
-
+    matrix.setTextColor(on ? colors[2] : colors[3]);
     matrix.print(":");
-
     show();
 }
 
-// -----------------------------------------------------------------------------
-// Garage indicator
-// -----------------------------------------------------------------------------
-
-void Display::showGarageClosed(
-    bool closed
-) {
-
+void Display::showGarageClosed(bool closed) {
     if (closed) {
-
-        matrix.fillRect(
-            GARAGE_X,
-            GARAGE_Y,
-            GARAGE_WIDTH,
-            GARAGE_HEIGHT,
-            colors[1]
-        );
-
+        matrix.fillRect(GARAGE_X, GARAGE_Y, GARAGE_WIDTH, GARAGE_HEIGHT, colors[1]);
     } else {
-
-        matrix.drawRect(
-            GARAGE_X,
-            GARAGE_Y,
-            GARAGE_WIDTH,
-            GARAGE_HEIGHT,
-            colors[0]
-        );
-
-        matrix.fillRect(
-            GARAGE_X + 1,
-            GARAGE_Y + 1,
-            1,
-            1,
-            0
-        );
-
-        matrix.fillRect(
-            GARAGE_X + 1,
-            GARAGE_Y + 2,
-            1,
-            1,
-            0
-        );
+        matrix.drawRect(GARAGE_X, GARAGE_Y, GARAGE_WIDTH, GARAGE_HEIGHT, colors[0]);
+        matrix.fillRect(GARAGE_X + 1, GARAGE_Y + 1, 1, 1, 0);
+        matrix.fillRect(GARAGE_X + 1, GARAGE_Y + 2, 1, 1, 0);
     }
-
     show();
 }
-
-// -----------------------------------------------------------------------------
-// Network status
-// -----------------------------------------------------------------------------
 
 void Display::showNetworkStatus(
-    bool wifiConnected,
-    bool ntpSynced
+    NetworkStatus wifi,
+    NetworkStatus ntp,
+    NetworkStatus mqtt
 ) {
-    _wifiConnected = wifiConnected;
-    _ntpSynced = ntpSynced;
+    _wifiStatus = wifi;
+    _ntpStatus = ntp;
+    _mqttStatus = mqtt;
     show();
 }
 
-// -----------------------------------------------------------------------------
-// Message
-// -----------------------------------------------------------------------------
-
-void Display::showMessage(
-    const char* message
-) {
-
+void Display::showMessage(const char* message) {
     matrix.fillScreen(0);
     matrix.setCursor(0, 0);
     matrix.setTextColor(colors[1]);
@@ -237,34 +134,14 @@ void Display::showMessage(
     show();
 }
 
-// -----------------------------------------------------------------------------
-// Clear
-// -----------------------------------------------------------------------------
-
 void Display::clear() {
-
     matrix.fillScreen(0);
-
     show();
 }
 
-// -----------------------------------------------------------------------------
-// Hardware update
-// -----------------------------------------------------------------------------
-
 void Display::show() {
-
-    matrix.drawPixel(
-        STATUS_X,
-        WIFI_STATUS_Y,
-        _wifiConnected ? colors[1] : colors[3]
-    );
-
-    matrix.drawPixel(
-        STATUS_X,
-        NTP_STATUS_Y,
-        _ntpSynced ? colors[1] : colors[3]
-    );
-
+    matrix.drawPixel(STATUS_X, WIFI_STATUS_Y, statusColor(_wifiStatus));
+    matrix.drawPixel(STATUS_X, NTP_STATUS_Y, statusColor(_ntpStatus));
+    matrix.drawPixel(STATUS_X, MQTT_STATUS_Y, statusColor(_mqttStatus));
     matrix.show();
 }
