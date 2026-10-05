@@ -58,15 +58,6 @@ CRGB statusColor(NetworkStatus status) {
     return CRGB::Black;
 }
 
-void applyNetworkStatusIndicators() {
-    // Write the status pixels directly into the FastLED buffer. This keeps
-    // the indicators independent of the GFX drawing operations used for the
-    // clock, colon, garage indicator, and messages.
-    matrixleds[matrix.XY(STATUS_X, WIFI_STATUS_Y)] = statusColor(
-        NetworkStatus::ATTEMPTING
-    );
-}
-
 } // namespace
 
 void Display::begin() {
@@ -82,9 +73,7 @@ void Display::begin() {
     show();
 }
 
-void Display::showTime(int hours, int minutes) {
-    matrix.fillScreen(0);
-
+void Display::drawTimeDigits(int hours, int minutes) {
     if (hours < 10) {
         matrix.setCursor(6, 0);
     } else {
@@ -93,27 +82,21 @@ void Display::showTime(int hours, int minutes) {
 
     matrix.setTextColor(colors[2]);
 
-    String localMinutes;
-    if (minutes < 10) {
-        localMinutes = "0" + String(minutes);
-    } else {
-        localMinutes = String(minutes);
-    }
+    char minuteBuf[3];
+    snprintf(minuteBuf, sizeof(minuteBuf), "%02d", minutes);
 
     matrix.print(String(hours));
     matrix.setCursor(16, 0);
-    matrix.print(localMinutes);
-    show();
+    matrix.print(minuteBuf);
 }
 
-void Display::updateColon(bool on) {
+void Display::drawColon(bool on) {
     matrix.setCursor(11, 0);
     matrix.setTextColor(on ? colors[2] : colors[3]);
     matrix.print(":");
-    show();
 }
 
-void Display::showGarageClosed(bool closed) {
+void Display::drawGarage(bool closed) {
     if (closed) {
         matrix.fillRect(GARAGE_X, GARAGE_Y, GARAGE_WIDTH, GARAGE_HEIGHT, colors[1]);
     } else {
@@ -121,6 +104,17 @@ void Display::showGarageClosed(bool closed) {
         matrix.fillRect(GARAGE_X + 1, GARAGE_Y + 1, 1, 1, 0);
         matrix.fillRect(GARAGE_X + 1, GARAGE_Y + 2, 1, 1, 0);
     }
+}
+
+void Display::showClock(int hours, int minutes, bool colonOn, bool garageClosed) {
+    // One buffer fill, one show. Avoids the intermediate "digits only"
+    // frame and the multi-show burst that was glitching WS2812 under
+    // main power (WiFi + MQTT active).
+    matrix.fillScreen(0);
+    drawTimeDigits(hours, minutes);
+    drawColon(colonOn);
+    drawGarage(garageClosed);
+    _cursorOn = colonOn;
     show();
 }
 

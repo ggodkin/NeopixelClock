@@ -13,9 +13,13 @@ class Display {
 public:
     void begin();
 
-    void showTime(int hours, int minutes);
-    void updateColon(bool on);
-    void showGarageClosed(bool closed);
+    // Single coherent clock redraw: digits + colon + garage + status LEDs,
+    // followed by exactly one FastLED show(). Prefer this over the
+    // individual helpers to avoid intermediate frames and multi-show bursts
+    // that can glitch WS2812 under main power (WiFi active).
+    void showClock(int hours, int minutes, bool colonOn, bool garageClosed);
+
+    // Lightweight helpers kept for status-only / message paths.
     void showNetworkStatus(
         NetworkStatus wifi,
         NetworkStatus ntp,
@@ -27,6 +31,10 @@ public:
 
 private:
     void show();
+
+    void drawTimeDigits(int hours, int minutes);
+    void drawColon(bool on);
+    void drawGarage(bool closed);
 
     bool _cursorOn = true;
     NetworkStatus _wifiStatus = NetworkStatus::ATTEMPTING;

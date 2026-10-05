@@ -12,10 +12,6 @@
 
 #include <Arduino.h>
 
-#include <Adafruit_GFX.h>
-#include <FastLED.h>
-#include <FastLED_NeoMatrix.h>
-
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
@@ -88,32 +84,10 @@ char msg[MSG_BUFFER_SIZE];
 char msgOut[MSG_BUFFER_SIZE];
 String msgStr;
 
-CRGB matrixleds[NUM_LEDS];
-
-FastLED_NeoMatrix* matrix =
-    new FastLED_NeoMatrix(
-        matrixleds,
-        MATRIX_WIDTH,
-        MATRIX_HEIGHT,
-        NEO_MATRIX_TOP +
-        NEO_MATRIX_LEFT +
-        NEO_MATRIX_COLUMNS +
-        NEO_MATRIX_ZIGZAG
-    );
-
-const uint32_t colors[] = {
-    matrix->Color(255, 0, 0),
-    matrix->Color(0, 255, 0),
-    matrix->Color(0, 0, 255),
-    matrix->Color(0, 0, 0)
-};
-
 void callback(char* topic, byte* payload, unsigned int length);
 void reconnect();
 void updateOtaMode();
 void updateNetworkStatusDisplay();
-void displayTime(int dispHours, int dispMinutes);
-void displayGarageClosed(bool closedInd);
 void redrawDisplay();
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -169,8 +143,13 @@ void redrawDisplay() {
         return;
     }
 
-    display.showTime(timekeeper.hour(), timekeeper.minute());
-    display.showGarageClosed(garageDoorClosedStatus);
+    // Single show: digits + colon + garage + status.
+    display.showClock(
+        timekeeper.hour(),
+        timekeeper.minute(),
+        cursorOn,
+        garageDoorClosedStatus
+    );
 }
 
 void updateNetworkStatusDisplay() {
@@ -419,30 +398,35 @@ void loop() {
     const bool displayUpdatesAllowed =
         !otaMode && (!outageMode || outageDisplayOn);
 
-    if (timekeeper.minuteChanged()) {
-        if (displayUpdatesAllowed) {
-            display.showTime(timekeeper.hour(), timekeeper.minute());
-            display.showGarageClosed(garageDoorClosedStatus);
+    // One coherent redraw per change. At minute boundaries both flags are
+    // true; we still issue a single showClock() so there is never an
+    // intermediate "digits only / no colon" frame or a multi-show burst
+    // concurrent with WiFi/MQTT activity.
+    if (timekeeper.minuteChanged() || timekeeper.secondChanged()) {
+        if (timekeeper.secondChanged()) {
+            cursorOn = !cursorOn;
         }
 
-        msgStr = String(timekeeper.hour()) + " : " + String(timekeeper.minute());
-        msgStr.toCharArray(msgOut, MSG_BUFFER_SIZE);
-
-        snprintf(msg, MSG_BUFFER_SIZE, "%s", msgOut);
-
-        if (!outageNetworkOff) {
-            client.publish("WatchBroom/Time", msg);
+        if (displayUpdatesAllowed) {
+            display.showClock(
+                timekeeper.hour(),
+                timekeeper.minute(),
+                cursorOn,
+                garageDoorClosedStatus
+            );
         }
 
-        debugln(msg);
-    }
+        if (timekeeper.minuteChanged()) {
+            msgStr = String(timekeeper.hour()) + " : " + String(timekeeper.minute());
+            msgStr.toCharArray(msgOut, MSG_BUFFER_SIZE);
 
-    if (timekeeper.secondChanged()) {
-        cursorOn = !cursorOn;
+            snprintf(msg, MSG_BUFFER_SIZE, "%s", msgOut);
 
-        if (displayUpdatesAllowed) {
-            display.updateColon(cursorOn);
-            display.showGarageClosed(garageDoorClosedStatus);
+            if (!outageNetworkOff) {
+                client.publish("WatchBroom/Time", msg);
+            }
+
+            debugln(msg);
         }
     }
 }
